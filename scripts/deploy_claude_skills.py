@@ -12,6 +12,7 @@ from pathlib import Path
 
 
 NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+FRONTMATTER_RE = re.compile(r"\A---\s*\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", re.DOTALL)
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_ROOT = ROOT / ".agents" / "skills"
 TARGET_ROOT = Path.home() / ".claude" / "skills"
@@ -33,11 +34,50 @@ def validate_name(name: str) -> None:
         raise ValueError(f"非法 Skill 名称：{name}")
 
 
+def declared_name(skill_file: Path) -> str:
+    text = skill_file.read_text(encoding="utf-8-sig")
+    match = FRONTMATTER_RE.match(text)
+    if not match:
+        raise ValueError(f"无效的 YAML frontmatter：{skill_file}")
+    names = [
+        line.split(":", 1)[1].strip()
+        for line in match.group(1).splitlines()
+        if line.startswith("name:")
+    ]
+    if len(names) != 1:
+        raise ValueError(f"YAML frontmatter 必须且只能包含一个 name：{skill_file}")
+    validate_name(names[0])
+    return names[0]
+
+
+def remove_legacy_install(name: str) -> None:
+    if not name.startswith("das-"):
+        return
+    legacy = TARGET_ROOT / name.removeprefix("das-")
+    legacy_skill = legacy / "SKILL.md"
+    if not legacy_skill.is_file():
+        return
+    try:
+        legacy_name = declared_name(legacy_skill)
+    except (OSError, UnicodeError, ValueError):
+        return
+    if legacy_name != name:
+        return
+    remove(legacy)
+    print(f"已清理旧版无前缀目录：{legacy}")
+
+
 def install(name: str) -> None:
     validate_name(name)
     source = SOURCE_ROOT / name
-    if not (source / "SKILL.md").is_file():
-        raise FileNotFoundError(f"缺少源文件：{source / 'SKILL.md'}")
+    skill_file = source / "SKILL.md"
+    if not skill_file.is_file():
+        raise FileNotFoundError(f"缺少源文件：{skill_file}")
+    metadata_name = declared_name(skill_file)
+    if metadata_name != name:
+        raise ValueError(
+            f"Skill 目录名必须与 YAML name 一致：{name} != {metadata_name}"
+        )
 
     TARGET_ROOT.mkdir(parents=True, exist_ok=True)
     target = TARGET_ROOT / name
@@ -66,6 +106,7 @@ def install(name: str) -> None:
     else:
         remove(backup)
     print(f"已安装：{name} -> {target}")
+    remove_legacy_install(name)
 
 
 def uninstall(name: str) -> None:
@@ -73,17 +114,26 @@ def uninstall(name: str) -> None:
     target = TARGET_ROOT / name
     if not (target.exists() or target.is_symlink()):
         print(f"未安装：{name}")
+        remove_legacy_install(name)
         return
     remove(target)
     print(f"已卸载：{name} -> {target}")
+    remove_legacy_install(name)
 
 
 def available_skills() -> list[str]:
     if not SOURCE_ROOT.is_dir():
         raise FileNotFoundError(f"未找到 Skill 目录：{SOURCE_ROOT}")
-    return sorted(
+    names = sorted(
         path.name for path in SOURCE_ROOT.iterdir() if (path / "SKILL.md").is_file()
     )
+    for name in names:
+        metadata_name = declared_name(SOURCE_ROOT / name / "SKILL.md")
+        if metadata_name != name:
+            raise ValueError(
+                f"Skill 目录名必须与 YAML name 一致：{name} != {metadata_name}"
+            )
+    return names
 
 
 def read_key() -> str:
