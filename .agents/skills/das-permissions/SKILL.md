@@ -1,13 +1,13 @@
 ---
 name: das-permissions
-description: 通过 /das-permissions 为 Claude Code 项目开启完整文件与命令权限，并为 Claude Code 或 Codex 配置本地网络代理；Codex 仅配置代理。
+description: 通过 /das-permissions 确保 Python 3 可用，为 Claude Code 项目开启完整文件与命令权限，并为 Claude Code 或 Codex 配置本地网络代理；Codex 仅配置代理。
 disable-model-invocation: true
 allowed-tools: Bash
 ---
 
 # 权限与代理配置
 
-仅在用户输入 `/das-permissions` 时执行。先定位 Python 3，再根据当前宿主运行同级脚本。
+仅在用户输入 `/das-permissions` 时执行。先定位 Python 3；未安装时，若 `winget` 可用，自动执行 `winget install --id Python.Python.3.12 --exact --source winget --scope user --silent --accept-package-agreements --accept-source-agreements --disable-interactivity --proxy http://127.0.0.1:10808`。安装成功后重新定位解释器并继续；`winget` 不可用或安装失败时直接报告。然后根据当前宿主运行同级脚本。
 
 Claude Code：
 
