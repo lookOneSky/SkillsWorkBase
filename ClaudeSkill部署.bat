@@ -41,12 +41,12 @@ set "EXIT_CODE=1"
 :result
 if "%EXIT_CODE%"=="0" goto :success
 echo.
-echo Claude Skill 部署失败。
+echo Claude Skill 操作失败。
 goto :finish
 
 :success
 echo.
-echo Claude Skill 部署完成。
+echo Claude Skill 操作完成。
 
 :finish
 if /I not "%~1"=="--no-pause" pause
