@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""将 .agents/skills 中的 Skill 安装到当前用户的 Claude 和 Codex 目录。"""
+"""将共享 Skill 与 Claude 专用 Skill 安装到当前用户目录。"""
 
 from __future__ import annotations
 
@@ -14,7 +14,8 @@ from pathlib import Path
 NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 FRONTMATTER_RE = re.compile(r"\A---\s*\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", re.DOTALL)
 ROOT = Path(__file__).resolve().parent.parent
-SOURCE_ROOT = ROOT / ".agents" / "skills"
+SHARED_SOURCE_ROOT = ROOT / ".agents" / "skills"
+CLAUDE_SOURCE_ROOT = ROOT / ".claude" / "skills"
 TARGET_ROOTS = (
     ("Claude", Path.home() / ".claude" / "skills"),
     ("Codex", Path.home() / ".agents" / "skills"),
@@ -79,7 +80,11 @@ def install_to(name: str, source: Path, target_root: Path, product: str) -> None
 
     def ignore(directory: str, names: list[str]) -> set[str]:
         ignored = {item for item in names if item == "__pycache__" or item.endswith(".pyc")}
-        if Path(directory).resolve() == source_resolved and "agents" in names:
+        if (
+            product == "Claude"
+            and Path(directory).resolve() == source_resolved
+            and "agents" in names
+        ):
             ignored.add("agents")
         return ignored
 
@@ -101,19 +106,41 @@ def install_to(name: str, source: Path, target_root: Path, product: str) -> None
     remove_legacy_install(name, target_root, product)
 
 
-def install(name: str) -> None:
+def locate_skill(name: str) -> tuple[Path, set[str]]:
     validate_name(name)
-    source = SOURCE_ROOT / name
+    matches = [
+        (SHARED_SOURCE_ROOT / name, {product for product, _ in TARGET_ROOTS}),
+        (CLAUDE_SOURCE_ROOT / name, {"Claude"}),
+    ]
+    matches = [
+        (source, products)
+        for source, products in matches
+        if (source / "SKILL.md").is_file()
+    ]
+    if not matches:
+        raise FileNotFoundError(f"未找到 Skill：{name}")
+    if len(matches) > 1:
+        raise ValueError(f"Skill 同时存在于共享与 Claude 专用目录：{name}")
+    return matches[0]
+
+
+def install(name: str) -> None:
+    source, products = locate_skill(name)
     skill_file = source / "SKILL.md"
-    if not skill_file.is_file():
-        raise FileNotFoundError(f"缺少源文件：{skill_file}")
     metadata_name = declared_name(skill_file)
     if metadata_name != name:
         raise ValueError(
             f"Skill 目录名必须与 YAML name 一致：{name} != {metadata_name}"
         )
     for product, target_root in TARGET_ROOTS:
-        install_to(name, source, target_root, product)
+        if product in products:
+            install_to(name, source, target_root, product)
+            continue
+        target = target_root / name
+        if target.exists() or target.is_symlink():
+            remove(target)
+            print(f"已清理 {product} 不适用的 Skill：{name} -> {target}")
+        remove_legacy_install(name, target_root, product)
 
 
 def uninstall(name: str) -> None:
@@ -130,18 +157,26 @@ def uninstall(name: str) -> None:
 
 
 def available_skills() -> list[str]:
-    if not SOURCE_ROOT.is_dir():
-        raise FileNotFoundError(f"未找到 Skill 目录：{SOURCE_ROOT}")
-    names = sorted(
-        path.name for path in SOURCE_ROOT.iterdir() if (path / "SKILL.md").is_file()
-    )
-    for name in names:
-        metadata_name = declared_name(SOURCE_ROOT / name / "SKILL.md")
-        if metadata_name != name:
-            raise ValueError(
-                f"Skill 目录名必须与 YAML name 一致：{name} != {metadata_name}"
-            )
-    return names
+    sources: dict[str, Path] = {}
+    for source_root in (SHARED_SOURCE_ROOT, CLAUDE_SOURCE_ROOT):
+        if not source_root.is_dir():
+            continue
+        for path in source_root.iterdir():
+            if not (path / "SKILL.md").is_file():
+                continue
+            if path.name in sources:
+                raise ValueError(f"Skill 同时存在于共享与 Claude 专用目录：{path.name}")
+            metadata_name = declared_name(path / "SKILL.md")
+            if metadata_name != path.name:
+                raise ValueError(
+                    f"Skill 目录名必须与 YAML name 一致：{path.name} != {metadata_name}"
+                )
+            sources[path.name] = path
+    if not sources:
+        raise FileNotFoundError(
+            f"未找到 Skill 目录：{SHARED_SOURCE_ROOT} 或 {CLAUDE_SOURCE_ROOT}"
+        )
+    return sorted(sources)
 
 
 def read_key() -> str:
@@ -160,6 +195,8 @@ def read_key() -> str:
 
 def choose_action() -> str | None:
     print("Claude/Codex 用户级 Skill 部署工具")
+    print(f"共享 Skill 源：{SHARED_SOURCE_ROOT}")
+    print(f"Claude 专用 Skill 源：{CLAUDE_SOURCE_ROOT}")
     for product, target_root in TARGET_ROOTS:
         print(f"{product} 目标目录：{target_root}")
     print("[1] 安装或更新全部")
