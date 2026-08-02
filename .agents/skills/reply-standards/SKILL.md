@@ -1,5 +1,5 @@
 ---
-name: reply-standards
+name: das-reply-standards
 description: 规范所有回复；处理任何请求时使用。
 ---
 
