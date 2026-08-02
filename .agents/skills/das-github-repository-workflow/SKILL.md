@@ -1,6 +1,7 @@
 ---
 name: das-github-repository-workflow
 description: 使用可配置的 GitHub 账号完成仓库首次提交：把当前目录创建为私有仓库并推送到 main，或 fork 已有仓库后在指定分支提交推送。仅在仓库首次提交时使用。
+user-invocable: false
 ---
 
 # GitHub 仓库工作流

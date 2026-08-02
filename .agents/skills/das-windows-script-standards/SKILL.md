@@ -1,6 +1,7 @@
 ---
 name: das-windows-script-standards
 description: 规范 Windows 脚本的实现与入口。创建或修改 Windows 自动化脚本、批处理入口、命令行工具或 Skill 内置脚本时使用；Skill 内置 Python 脚本无需额外的 .bat。
+user-invocable: false
 ---
 
 - 所有 Windows 脚本使用 Python 实现。
