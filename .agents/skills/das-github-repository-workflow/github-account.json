@@ -1,0 +1,13 @@
+{
+  "host": "github.com",
+  "username": "your-github-username",
+  "token_env": "GITHUB_TOKEN",
+  "token": "",
+  "git_name": "Your Name",
+  "git_email": "you@example.com",
+  "proxy": "http://127.0.0.1:10808",
+  "create_remote": "origin",
+  "fork_remote": "fork",
+  "upstream_remote": "upstream",
+  "fork_branch": "Jiangs"
+}
