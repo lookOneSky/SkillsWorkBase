@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""将 .agents/skills 中的 Skill 安装到当前用户的 Claude 配置目录。"""
+"""将 .agents/skills 中的 Skill 安装到当前用户的 Claude 和 Codex 目录。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,10 @@ NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 FRONTMATTER_RE = re.compile(r"\A---\s*\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", re.DOTALL)
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_ROOT = ROOT / ".agents" / "skills"
-TARGET_ROOT = Path.home() / ".claude" / "skills"
+TARGET_ROOTS = (
+    ("Claude", Path.home() / ".claude" / "skills"),
+    ("Codex", Path.home() / ".agents" / "skills"),
+)
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -50,10 +53,10 @@ def declared_name(skill_file: Path) -> str:
     return names[0]
 
 
-def remove_legacy_install(name: str) -> None:
+def remove_legacy_install(name: str, target_root: Path, product: str) -> None:
     if not name.startswith("das-"):
         return
-    legacy = TARGET_ROOT / name.removeprefix("das-")
+    legacy = target_root / name.removeprefix("das-")
     legacy_skill = legacy / "SKILL.md"
     if not legacy_skill.is_file():
         return
@@ -64,25 +67,14 @@ def remove_legacy_install(name: str) -> None:
     if legacy_name != name:
         return
     remove(legacy)
-    print(f"已清理旧版无前缀目录：{legacy}")
+    print(f"已清理 {product} 旧版无前缀目录：{legacy}")
 
 
-def install(name: str) -> None:
-    validate_name(name)
-    source = SOURCE_ROOT / name
-    skill_file = source / "SKILL.md"
-    if not skill_file.is_file():
-        raise FileNotFoundError(f"缺少源文件：{skill_file}")
-    metadata_name = declared_name(skill_file)
-    if metadata_name != name:
-        raise ValueError(
-            f"Skill 目录名必须与 YAML name 一致：{name} != {metadata_name}"
-        )
-
-    TARGET_ROOT.mkdir(parents=True, exist_ok=True)
-    target = TARGET_ROOT / name
-    staging = TARGET_ROOT / f".{name}.tmp-{uuid.uuid4().hex}"
-    backup = TARGET_ROOT / f".{name}.bak-{uuid.uuid4().hex}"
+def install_to(name: str, source: Path, target_root: Path, product: str) -> None:
+    target_root.mkdir(parents=True, exist_ok=True)
+    target = target_root / name
+    staging = target_root / f".{name}.tmp-{uuid.uuid4().hex}"
+    backup = target_root / f".{name}.bak-{uuid.uuid4().hex}"
     source_resolved = source.resolve()
 
     def ignore(directory: str, names: list[str]) -> set[str]:
@@ -105,20 +97,36 @@ def install(name: str) -> None:
         raise
     else:
         remove(backup)
-    print(f"已安装：{name} -> {target}")
-    remove_legacy_install(name)
+    print(f"已安装到 {product}：{name} -> {target}")
+    remove_legacy_install(name, target_root, product)
+
+
+def install(name: str) -> None:
+    validate_name(name)
+    source = SOURCE_ROOT / name
+    skill_file = source / "SKILL.md"
+    if not skill_file.is_file():
+        raise FileNotFoundError(f"缺少源文件：{skill_file}")
+    metadata_name = declared_name(skill_file)
+    if metadata_name != name:
+        raise ValueError(
+            f"Skill 目录名必须与 YAML name 一致：{name} != {metadata_name}"
+        )
+    for product, target_root in TARGET_ROOTS:
+        install_to(name, source, target_root, product)
 
 
 def uninstall(name: str) -> None:
     validate_name(name)
-    target = TARGET_ROOT / name
-    if not (target.exists() or target.is_symlink()):
-        print(f"未安装：{name}")
-        remove_legacy_install(name)
-        return
-    remove(target)
-    print(f"已卸载：{name} -> {target}")
-    remove_legacy_install(name)
+    for product, target_root in TARGET_ROOTS:
+        target = target_root / name
+        if not (target.exists() or target.is_symlink()):
+            print(f"{product} 未安装：{name}")
+            remove_legacy_install(name, target_root, product)
+            continue
+        remove(target)
+        print(f"已从 {product} 卸载：{name} -> {target}")
+        remove_legacy_install(name, target_root, product)
 
 
 def available_skills() -> list[str]:
@@ -151,8 +159,9 @@ def read_key() -> str:
 
 
 def choose_action() -> str | None:
-    print("Claude 用户级 Skill 部署工具")
-    print(f"目标目录：{TARGET_ROOT}")
+    print("Claude/Codex 用户级 Skill 部署工具")
+    for product, target_root in TARGET_ROOTS:
+        print(f"{product} 目标目录：{target_root}")
     print("[1] 安装或更新全部")
     print("[2] 卸载全部")
     print("[0] 退出")
