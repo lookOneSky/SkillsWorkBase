@@ -15,6 +15,12 @@ class ImportFbxError(RuntimeError):
     """Expected import or environment error."""
 
 
+DEFAULT_PARENT_MATERIAL_PATH = (
+    "/Script/Engine.MaterialInstanceConstant"
+    "'/DasAssetLibrary/Mesh/material/MI_Model.MI_Model'"
+)
+
+
 def load_remote_support():
     support_dir = Path(__file__).resolve().parent.parent / "das-unreal-mcp"
     if not (support_dir / "configure_unreal_mcp.py").is_file():
@@ -71,8 +77,8 @@ def normalize_parent_path(value: str) -> str:
     if "'" in path and path.endswith("'"):
         path = path.split("'", 1)[1][:-1]
     path = path.replace("\\", "/")
-    if not path.startswith("/Game/"):
-        raise ImportFbxError("父材质必须使用 /Game 下的资产路径：{}".format(path))
+    if not path.startswith("/") or path.count("/") < 2:
+        raise ImportFbxError("父材质资产路径无效：{}".format(path))
     leaf = path.rsplit("/", 1)[-1]
     if "." not in leaf:
         path = "{}.{}".format(path, leaf)
@@ -347,8 +353,12 @@ def print_remote_result(result: dict) -> int:
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("fbx_path", help="本地 FBX 文件路径")
-    parser.add_argument("parent_material_path", help="Unreal 父材质对象路径")
     parser.add_argument("base_color_parameter", help="父材质的 BaseColor 纹理参数名")
+    parser.add_argument(
+        "--parent-material-path",
+        default=DEFAULT_PARENT_MATERIAL_PATH,
+        help="父材质对象路径",
+    )
     parser.add_argument("--project", default=".", help=".uproject 或包含它的目录")
     parser.add_argument(
         "--destination-path", help="导入目录，默认 /Game/Imported/Mesh/<FBX名>"

@@ -1,4 +1,4 @@
 interface:
   display_name: "Unreal FBX 导入"
-  short_description: "用脚本导入 FBX、创建父材质实例并绑定 BaseColor 参数"
-  default_prompt: "使用 $das-unreal-import-fbx 将 FBX 导入当前 Unreal 项目，并指定父材质和 BaseColor 纹理参数。"
+  short_description: "用默认父材质导入 FBX 并绑定 BaseColor 参数"
+  default_prompt: "使用 $das-unreal-import-fbx 将 FBX 导入当前 Unreal 项目，并指定 BaseColor 纹理参数。"
