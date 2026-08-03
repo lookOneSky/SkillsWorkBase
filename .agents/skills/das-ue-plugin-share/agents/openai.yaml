@@ -1,0 +1,4 @@
+interface:
+  display_name: "Unreal Plugin 共享"
+  short_description: "把外部 Unreal Plugin 目录安全链接到当前项目的 Plugins"
+  default_prompt: "使用 $das-ue-plugin-share 将指定的 Unreal Plugin 目录共享到当前项目。"
