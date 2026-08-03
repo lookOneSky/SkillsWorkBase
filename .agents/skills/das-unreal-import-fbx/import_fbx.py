@@ -19,6 +19,7 @@ DEFAULT_PARENT_MATERIAL_PATH = (
     "/Script/Engine.MaterialInstanceConstant"
     "'/DasAssetLibrary/Mesh/material/MI_Model.MI_Model'"
 )
+DEFAULT_BASE_COLOR_PARAMETER = "TEX_漫反射"
 
 
 def load_remote_support():
@@ -353,11 +354,15 @@ def print_remote_result(result: dict) -> int:
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("fbx_path", help="本地 FBX 文件路径")
-    parser.add_argument("base_color_parameter", help="父材质的 BaseColor 纹理参数名")
     parser.add_argument(
         "--parent-material-path",
         default=DEFAULT_PARENT_MATERIAL_PATH,
         help="父材质对象路径",
+    )
+    parser.add_argument(
+        "--base-color-parameter",
+        default=DEFAULT_BASE_COLOR_PARAMETER,
+        help="父材质的 BaseColor 纹理参数名",
     )
     parser.add_argument("--project", default=".", help=".uproject 或包含它的目录")
     parser.add_argument(
