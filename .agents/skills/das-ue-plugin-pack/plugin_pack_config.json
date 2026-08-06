@@ -1,0 +1,8 @@
+{
+  "plugins": [
+    "DasUnreal",
+    "cesium-unreal",
+    "DasApplication",
+    "DasPixel"
+  ]
+}

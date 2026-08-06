@@ -1,0 +1,4 @@
+interface:
+  display_name: "Unreal 固定插件打包"
+  short_description: "按 Skill 固定清单打包、修复并部署四个 Unreal 插件"
+  default_prompt: "使用 $das-ue-plugin-pack 按固定清单打包四个 Das Unreal 插件并部署到目标引擎。"
