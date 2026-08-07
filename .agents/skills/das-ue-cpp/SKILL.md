@@ -1,0 +1,9 @@
+---
+name: das-ue-cpp
+description: 规范 Unreal Engine C++ 编写、修改、重构或排查任务的 Plan 回复格式；处理 UE C++ 代码且需要给出 Plan 时使用。
+user-invocable: false
+---
+
+- Plan 以代码为主，只保留理解当前变更所需的最少文字。
+- 只展示当前需要新增或修改的代码，不展示未变化的代码或完整文件。
+- 所有 C++ 代码使用带 `cpp` 语言标识的 Markdown 围栏代码块。

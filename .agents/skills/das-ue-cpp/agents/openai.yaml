@@ -1,0 +1,4 @@
+interface:
+  display_name: "Das UE C++"
+  short_description: "规范 Unreal Engine C++ Plan 中的变更代码展示格式"
+  default_prompt: "使用 $das-ue-cpp 为这项 Unreal Engine C++ 修改编写以代码为主的 Plan。"
