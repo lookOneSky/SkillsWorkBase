@@ -1,0 +1,4 @@
+interface:
+  display_name: "Das Skill 更新"
+  short_description: "从用户目录同步 SkillsWorkBase 并重新部署 Das Skills"
+  default_prompt: "使用 $das-skillupdate 刷新并重新部署本机的 Das Skills。"
