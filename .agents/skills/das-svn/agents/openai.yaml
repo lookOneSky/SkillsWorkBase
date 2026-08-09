@@ -1,0 +1,4 @@
+interface:
+  display_name: "Das SVN"
+  short_description: "通过 svnIgnore.txt 更新 SVN 忽略属性"
+  default_prompt: "使用 $das-svn 根据当前工作目录的 svnIgnore.txt 更新 SVN 忽略配置。"
