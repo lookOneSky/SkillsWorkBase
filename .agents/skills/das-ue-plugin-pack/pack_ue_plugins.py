@@ -285,6 +285,17 @@ def write_text(path, content, encoding="utf-8"):
         stream.write(content)
 
 
+def write_json_atomic(path, data):
+    temporary = path.with_name(".{}.{}.tmp".format(path.name, uuid.uuid4().hex))
+    payload = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    try:
+        write_text(temporary, payload)
+        os.replace(str(temporary), str(path))
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
 def write_descriptor(plugin):
     backup = plugin.descriptor.with_suffix(plugin.descriptor.suffix + ".autofix.bak")
     if not backup.exists():
@@ -531,29 +542,27 @@ def package_plugin(
     raise PackError("{} 达到最大重试次数".format(plugin.name))
 
 
-def unique_backup_path(destination, timestamp):
-    candidate = destination.with_name("{}.backup-{}".format(destination.name, timestamp))
-    index = 1
-    while os.path.lexists(str(candidate)):
-        candidate = destination.with_name(
-            "{}.backup-{}-{:02d}".format(destination.name, timestamp, index)
-        )
-        index += 1
-    return candidate
+def remove_installed_plugin(destination):
+    if not os.path.lexists(str(destination)):
+        return
+    if destination.is_symlink():
+        destination.unlink()
+    elif destination.is_dir():
+        shutil.rmtree(str(destination))
+    else:
+        destination.unlink()
+    print("[删除旧插件] {}".format(destination))
 
 
-def install_plugin(packaged_root, plugin, install_root, timestamp):
+def install_plugin(packaged_root, plugin, install_root):
     install_root.mkdir(parents=True, exist_ok=True)
     destination = install_root / plugin.directory.name
     staging = install_root / ".{}.installing-{}".format(
         plugin.directory.name, uuid.uuid4().hex
     )
-    backup = None
     try:
         shutil.copytree(str(packaged_root), str(staging), symlinks=True)
-        if os.path.lexists(str(destination)):
-            backup = unique_backup_path(destination, timestamp)
-            destination.rename(backup)
+        remove_installed_plugin(destination)
         staging.rename(destination)
     except Exception:
         if os.path.lexists(str(staging)):
@@ -561,13 +570,71 @@ def install_plugin(packaged_root, plugin, install_root, timestamp):
                 shutil.rmtree(str(staging))
             else:
                 staging.unlink()
-        if backup is not None and not os.path.lexists(str(destination)):
-            backup.rename(destination)
         raise
     print("[部署完成] {}：{}".format(plugin.name, destination))
-    if backup is not None:
-        print("[原目录备份] {}".format(backup))
-    return destination, backup
+    return destination
+
+
+def load_resume_results(summary, ordered, session_dir, install_root):
+    try:
+        content, _ = read_text_auto(summary)
+        results = json.loads(content)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise PackError("无法读取断点摘要：{} ({})".format(summary, exc)) from exc
+    if not isinstance(results, list):
+        raise PackError("断点摘要根节点不是数组：{}".format(summary))
+    if len(results) > len(ordered):
+        raise PackError("断点摘要的已完成插件数量超过固定清单：{}".format(summary))
+
+    for index, result in enumerate(results):
+        plugin = ordered[index]
+        if not isinstance(result, dict):
+            raise PackError("断点摘要第 {} 项不是对象：{}".format(index + 1, summary))
+        if str(result.get("plugin", "")).casefold() != plugin.name.casefold():
+            raise PackError(
+                "断点摘要与当前依赖顺序不一致，第 {} 项应为 {}：{}".format(
+                    index + 1, plugin.name, summary
+                )
+            )
+
+        source_value = result.get("source")
+        package_value = result.get("package")
+        install_value = result.get("install")
+        paths = (source_value, package_value, install_value)
+        if not all(isinstance(item, str) and item for item in paths):
+            raise PackError("断点摘要缺少 {} 的路径信息：{}".format(plugin.name, summary))
+
+        source_path = resolve_existing(source_value, "断点源插件目录")
+        package_path = resolve_existing(package_value, "断点插件包目录")
+        install_path = resolve_existing(install_value, "断点引擎插件目录")
+        expected_package = (session_dir / plugin.directory.name).resolve()
+        expected_install = (install_root / plugin.directory.name).resolve()
+        if source_path != plugin.directory.resolve():
+            raise PackError("断点源插件与当前源目录不一致：{}".format(plugin.name))
+        if not is_relative_to(package_path, expected_package):
+            raise PackError("断点插件包不在当前时间目录中：{}".format(package_path))
+        if install_path != expected_install:
+            raise PackError("断点引擎插件与当前部署目录不一致：{}".format(install_path))
+    return results
+
+
+def resume_command(arguments, session_dir):
+    resumed = []
+    skip_next = False
+    for argument in arguments:
+        if skip_next:
+            skip_next = False
+            continue
+        if argument == "--resume":
+            skip_next = True
+            continue
+        if argument.startswith("--resume="):
+            continue
+        resumed.append(argument)
+    resumed.extend(["--resume", str(session_dir)])
+    return subprocess.list2cmdline(
+        [sys.executable, str(Path(__file__).resolve())] + resumed
+    )
 
 
 def parse_args(argv=None):
@@ -580,7 +647,7 @@ def parse_args(argv=None):
     parser.add_argument("--timestamp", help="指定时间目录名，默认 yyyyMMddHHmm")
     parser.add_argument("--max-attempts", type=int, default=3, help="每个插件最大尝试次数")
     parser.add_argument("--uat-arg", action="append", default=[], help="附加 UAT 参数，可重复")
-    parser.add_argument("--no-install", action="store_true", help="不复制成品到引擎")
+    parser.add_argument("--resume", metavar="TIME_DIR", help="继续已有时间目录，跳过已完成插件")
     parser.add_argument("--no-auto-fix", action="store_true", help="不自动修改 .uplugin 依赖")
     parser.add_argument("--no-rocket", action="store_true", help="不向 BuildPlugin 传入 -Rocket")
     parser.add_argument("--dry-run", action="store_true", help="仅检查并输出计划，不修改或打包")
@@ -588,8 +655,13 @@ def parse_args(argv=None):
 
 
 def main(argv=None):
-    args = parse_args(argv)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    args = parse_args(arguments)
+    session_dir = None
+    current_plugin = None
     try:
+        if args.resume and args.dry_run:
+            raise PackError("--resume 不能与 --dry-run 同时使用")
         if os.name != "nt" and not args.dry_run:
             raise PackError("此脚本仅支持 Windows")
         if args.max_attempts < 1:
@@ -611,7 +683,18 @@ def main(argv=None):
         )
         ordered = dependency_order(selected)
         timestamp = args.timestamp or datetime.now().strftime("%Y%m%d%H%M")
-        session_dir = unique_session_dir(output_root, timestamp, create=not args.dry_run)
+        if args.resume:
+            session_dir = resolve_existing(args.resume, "继续打包目录")
+            if not session_dir.is_dir():
+                raise PackError("继续打包路径不是时间目录：{}".format(session_dir))
+            if session_dir.parent != output_root:
+                raise PackError(
+                    "继续打包目录不属于当前输出根目录：{}".format(session_dir)
+                )
+        else:
+            session_dir = unique_session_dir(
+                output_root, timestamp, create=not args.dry_run
+            )
         install_root = (
             Path(args.install_dir).expanduser().resolve()
             if args.install_dir
@@ -640,13 +723,28 @@ def main(argv=None):
                         )
                     )
                 )
-                if not args.no_install:
-                    print("[计划部署] {}".format(install_root / plugin.directory.name))
+                print("[计划部署] {}".format(install_root / plugin.directory.name))
             print("[完成] dry-run 未修改文件")
             return 0
 
-        results = []
-        for plugin in ordered:
+        summary = session_dir / "_package-summary.json"
+        if args.resume:
+            results = load_resume_results(
+                summary, ordered, session_dir, install_root
+            )
+            if results:
+                print("[跳过已完成] {}".format(
+                    ", ".join(item["plugin"] for item in results)
+                ))
+        else:
+            results = []
+            write_json_atomic(summary, results)
+
+        remaining = ordered[len(results):]
+        if remaining:
+            print("[继续插件] {}".format(remaining[0].name))
+        for plugin in remaining:
+            current_plugin = plugin.name
             packaged_root, logs = package_plugin(
                 plugin=plugin,
                 selected=selected,
@@ -658,35 +756,49 @@ def main(argv=None):
                 max_attempts=args.max_attempts,
                 auto_fix=not args.no_auto_fix,
             )
-            destination = None
-            backup = None
-            if not args.no_install:
-                destination, backup = install_plugin(
-                    packaged_root, plugin, install_root, session_dir.name
-                )
+            destination = install_plugin(packaged_root, plugin, install_root)
             results.append(
                 {
                     "plugin": plugin.name,
                     "source": str(plugin.directory),
                     "package": str(packaged_root),
-                    "install": str(destination) if destination else None,
-                    "backup": str(backup) if backup else None,
+                    "install": str(destination),
                     "logs": [str(item) for item in logs],
                 }
             )
-        summary = session_dir / "_package-summary.json"
-        write_text(summary, json.dumps(results, ensure_ascii=False, indent=2) + "\n")
+            write_json_atomic(summary, results)
+            print("[进度已保存] {}/{}：{}".format(
+                len(results), len(ordered), summary
+            ))
+            current_plugin = None
         print("[摘要] {}".format(summary))
         print("[完成] {} 个插件全部打包成功".format(len(results)))
         return 0
     except PackError as exc:
         print("[错误] {}".format(exc), file=sys.stderr)
+        if current_plugin is not None and session_dir is not None:
+            print("[失败插件] {}".format(current_plugin), file=sys.stderr)
+            print(
+                "[继续命令] {}".format(resume_command(arguments, session_dir)),
+                file=sys.stderr,
+            )
         return 1
     except KeyboardInterrupt:
         print("[中止] 用户取消", file=sys.stderr)
+        if current_plugin is not None and session_dir is not None:
+            print(
+                "[继续命令] {}".format(resume_command(arguments, session_dir)),
+                file=sys.stderr,
+            )
         return 130
     except (OSError, shutil.Error) as exc:
         print("[错误] 文件操作失败：{}".format(exc), file=sys.stderr)
+        if current_plugin is not None and session_dir is not None:
+            print("[失败插件] {}".format(current_plugin), file=sys.stderr)
+            print(
+                "[继续命令] {}".format(resume_command(arguments, session_dir)),
+                file=sys.stderr,
+            )
         return 1
 
 
