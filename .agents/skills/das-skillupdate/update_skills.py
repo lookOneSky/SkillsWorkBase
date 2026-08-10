@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -13,7 +12,7 @@ from pathlib import Path
 REPOSITORY_URL = "https://github.com/lookOneSky/SkillsWorkBase.git"
 REPOSITORY_DIR = Path.home() / "SkillsWorkBase"
 GIT_PROXY = "http://127.0.0.1:10808"
-DEPLOY_SCRIPT = "ClaudeSkill部署.bat"
+DEPLOY_SCRIPT = Path("scripts") / "deploy_claude_skills.py"
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -48,13 +47,10 @@ def deploy(repository_dir: Path) -> None:
     deploy_script = repository_dir / DEPLOY_SCRIPT
     if not deploy_script.is_file():
         raise FileNotFoundError(f"未找到部署入口：{deploy_script}")
-    if os.name != "nt":
-        raise RuntimeError("ClaudeSkill部署.bat 只能在 Windows 上运行")
 
-    command_processor = os.environ.get("ComSpec", "cmd.exe")
-    print("正在部署 Claude/Codex Skills")
+    print("正在非交互部署 Claude/Codex Skills")
     run(
-        [command_processor, "/d", "/c", "call", str(deploy_script), "--no-pause"],
+        [sys.executable, str(deploy_script), "--action", "install"],
         cwd=repository_dir,
     )
 

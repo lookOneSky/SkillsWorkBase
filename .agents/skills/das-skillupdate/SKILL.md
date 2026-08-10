@@ -5,5 +5,5 @@ user-invocable: false
 ---
 
 - 使用 Python 3 执行本文件同级的 `update_skills.py`。
-- 脚本默认在 `%USERPROFILE%\SkillsWorkBase` 克隆或快进更新仓库，再调用仓库根目录的 `ClaudeSkill部署.bat --no-pause`。
+- 脚本默认在 `%USERPROFILE%\SkillsWorkBase` 克隆或快进更新仓库，再使用当前 Python 直接执行 `scripts/deploy_claude_skills.py --action install`，全程不等待菜单输入。
 - 保留本地修改；脚本失败时报告原始错误，不要强制重置或继续部署。

@@ -5,6 +5,8 @@ cd /d "%~dp0"
 
 set "SCRIPT=%~dp0scripts\deploy_claude_skills.py"
 set "CODEX_PY=%USERPROFILE%\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+set "DEPLOY_ARGS="
+if /I "%~1"=="--no-pause" set "DEPLOY_ARGS=--action install"
 
 if not exist "%SCRIPT%" goto :missing_script
 if exist "%CODEX_PY%" goto :run_codex_python
@@ -15,17 +17,17 @@ if not errorlevel 1 goto :run_python
 goto :missing_python
 
 :run_codex_python
-"%CODEX_PY%" "%SCRIPT%"
+"%CODEX_PY%" "%SCRIPT%" %DEPLOY_ARGS%
 set "EXIT_CODE=%ERRORLEVEL%"
 goto :result
 
 :run_py
-py -3 "%SCRIPT%"
+py -3 "%SCRIPT%" %DEPLOY_ARGS%
 set "EXIT_CODE=%ERRORLEVEL%"
 goto :result
 
 :run_python
-python "%SCRIPT%"
+python "%SCRIPT%" %DEPLOY_ARGS%
 set "EXIT_CODE=%ERRORLEVEL%"
 goto :result
 
