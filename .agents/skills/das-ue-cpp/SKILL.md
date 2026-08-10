@@ -1,6 +1,6 @@
 ---
 name: das-ue-cpp
-description: 规范 Unreal Engine C++ 编写、修改、重构或排查任务的 Plan 回复格式；处理 UE C++ 代码且需要给出 Plan 时使用。
+description: 规范 Unreal Engine 项目相关任务的 Plan 回复格式；输入只要涉及 Unreal Engine（UE/虚幻引擎）项目就使用，无论是否涉及 C++ 或是否明确要求 Plan。
 user-invocable: false
 ---
 
