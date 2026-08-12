@@ -1,0 +1,4 @@
+interface:
+  display_name: "Unreal DasPixel Web 接口"
+  short_description: "封装 UE DasPixel Web 与 JS 接口"
+  default_prompt: "使用 $das-ue-daspixel 为当前 Unreal 功能导出 Web 与 JS 接口。"
