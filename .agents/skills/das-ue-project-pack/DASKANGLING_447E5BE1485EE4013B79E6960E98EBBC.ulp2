@@ -1,0 +1,129 @@
+{
+	"Version": 35,
+	"Id": "447E5BE1485EE4013B79E6960E98EBBC",
+	"Name": "DasKangLing",
+	"Description": "",
+	"BuildConfiguration": 4,
+	"ProjectSpecified": false,
+	"ShareableProjectPath": "D:/CodeAll/DasKangLing/DasKangLing.uproject",
+	"CookConfiguration": 4,
+	"CookIncremental": false,
+	"CookOptions": "",
+	"CookMode": 1,
+	"CookUnversioned": true,
+	"CookedCultures": [
+		"en"
+	],
+	"CookedMaps": [
+		"Map_Main",
+		"KL"
+	],
+	"CookedPlatforms": [
+		"Windows"
+	],
+	"DeployStreamingServer": false,
+	"DeployWithUnrealPak": true,
+	"DeployedDeviceGroupId": "5CD6A03E469DA672E4592D86DAAC63DE",
+	"DeploymentMode": 0,
+	"HideFileServerWindow": false,
+	"LaunchMode": 2,
+	"PackagingMode": 1,
+	"PackageDir": "D:/UEPack/康陵/202608181950",
+	"BuildMode": 1,
+	"ForceClose": true,
+	"Timeout": 60,
+	"Compressed": true,
+	"EncryptIniFiles": false,
+	"ForDistribution": false,
+	"DeployPlatform": "None",
+	"SkipCookingEditorContent": false,
+	"DeployIncremental": false,
+	"GeneratePatch": false,
+	"AddPatchLevel": false,
+	"StageBaseReleasePaks": false,
+	"DLCIncludeEngineContent": false,
+	"CreateReleaseVersion": false,
+	"CreateReleaseVersionName": "",
+	"BasedOnReleaseVersionName": "",
+	"ReferenceContainerGlobalFileName": "",
+	"ReferenceContainerCryptoKeysFileName": "",
+	"RetainStagedDirectory": false,
+	"OriginalReleaseVersionName": "",
+	"CreateDLC": false,
+	"DLCName": "",
+	"GenerateChunks": true,
+	"GenerateHttpChunkData": false,
+	"HttpChunkDataDirectory": "",
+	"HttpChunkDataReleaseName": "",
+	"Archive": false,
+	"ArchiveDirectory": "",
+	"AdditionalCommandLineParameters": "",
+	"IncludePrerequisites": false,
+	"UseIoStore": false,
+	"MakeBinaryConfig": false,
+	"BuildTargetSpecified": false,
+	"BuildTargetName": "",
+	"DefaultRole":
+	{
+		"AssignedDevice": "",
+		"CommandLine": "",
+		"DeviceId": "",
+		"InitialCulture": "en",
+		"InitialMapName": "",
+		"Name": "DefaultRole",
+		"InstanceType": 2,
+		"VsyncEnabled": false
+	},
+	"scripts": [
+		{
+			"script": "BuildCookRun",
+			"project": "",
+			"noP4": true,
+			"nocompile": true,
+			"nocompileeditor": true,
+			"unrealexe": "S:\\Soft\\UE532LocalBuilds_20260226\\Engine\\Windows\\Engine\\Binaries\\Win64\\UnrealEditor-Win64-DebugGame-Cmd.exe",
+			"utf8output": true,
+			"clientconfig": [
+				"Shipping"
+			],
+			"serverconfig": [
+				"Shipping"
+			],
+			"platform": [
+				"Win64"
+			],
+			"cmdline":
+			{
+				"": "",
+				"messaging": true
+			},
+			"device": [],
+			"addcmdline":
+			{
+				"sessionid": "08001CE0473AD1E1C4A6A8A994DF3443",
+				"sessionowner": "das",
+				"sessionname": "DasKangLing"
+			},
+			"map": [
+				"Map_Main",
+				"KL"
+			],
+			"stagingdirectory": "D:/UEPack/康陵/202608181950",
+			"build": true,
+			"cook": true,
+			"unversionedcookedcontent": true,
+			"pak": true,
+			"generatepatch": false,
+			"manifests": true,
+			"iterativecooking": false,
+			"iteratesharedcookedbuild": false,
+			"skipcookingeditorcontent": false,
+			"compressed": true,
+			"EncryptIniFiles": false,
+			"ForDistribution": false,
+			"stage": true,
+			"package": true,
+			"RetainStagedDirectory": false
+		}
+	]
+}
