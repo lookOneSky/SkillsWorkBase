@@ -15,7 +15,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 
-PROFILE_SUFFIXES = {".ulp", ".ulp2", ".upl2"}
+PROFILE_SUFFIXES = {".ulp2"}
 SKIPPED_DIRECTORIES = {
     ".git",
     ".svn",
@@ -193,6 +193,9 @@ def select_profile(project: Path, engine: Path) -> tuple[Path | None, dict | Non
     for root, max_depth in roots:
         for path in iter_profile_files(root, max_depth=max_depth):
             files[os.path.normcase(str(path))] = path
+
+    for path in sorted(files.values(), key=lambda item: str(item).casefold()):
+        print("[找到配置文件] {}".format(path))
 
     matches = []
     for path in files.values():
