@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -36,13 +37,14 @@ PROFILE_SKIPPED_DIRECTORIES = {
     "Plugins",
     "Source",
 }
-TIMESTAMP_RE = re.compile(r"^\d{12}(?:[_-]\d{2})?$")
+TIMESTAMP_RE = re.compile(r"^\d{12}(?:_DLC)?(?:[_-]\d{2})?$")
 HASH_SUFFIX_RE = re.compile(r"_[0-9a-f]{32}$", re.IGNORECASE)
 COOK_FAILURE_RE = re.compile(
     r"(?:Error_UnknownCookFailure|Cook(?:ing)?(?: commandlet)? failed|"
     r"CookResults:\s*(?:Error|Failed)|LogCook:\s*Error|ExitCode\s*=\s*25\b)",
     re.IGNORECASE,
 )
+PROFILE_MODE_FIELDS = ("CreateReleaseVersion", "CreateDLC")
 
 
 class PackageError(RuntimeError):
@@ -69,6 +71,78 @@ def read_json(path: Path) -> dict:
         except (UnicodeError, json.JSONDecodeError) as exc:
             last_error = exc
     raise PackageError("无法解析配置：{} ({})".format(path, last_error))
+
+
+def apply_packaging_mode(data: dict, dlc: bool) -> None:
+    data["CreateReleaseVersion"] = not dlc
+    data["CreateDLC"] = dlc
+
+
+def update_profile_packaging_mode(path: Path, dlc: bool) -> None:
+    raw = path.read_bytes()
+    encodings = ["utf-8-sig" if raw.startswith(b"\xef\xbb\xbf") else "utf-8"]
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        encodings.insert(0, "utf-16")
+    preferred_encoding = locale.getpreferredencoding(False)
+    if preferred_encoding and preferred_encoding.casefold() not in {
+        item.casefold() for item in encodings
+    }:
+        encodings.append(preferred_encoding)
+
+    text = None
+    encoding = None
+    for candidate in encodings:
+        try:
+            text = raw.decode(candidate)
+            encoding = candidate
+            break
+        except UnicodeError:
+            continue
+    if text is None or encoding is None:
+        raise PackageError("无法读取配置编码：{}".format(path))
+
+    values = {
+        "CreateReleaseVersion": not dlc,
+        "CreateDLC": dlc,
+    }
+    updated = text
+    for field in PROFILE_MODE_FIELDS:
+        pattern = re.compile(
+            r'(^[ \t]*"{}"[ \t]*:[ \t]*)(?:true|false)([ \t]*,)'.format(
+                re.escape(field)
+            ),
+            re.MULTILINE,
+        )
+        updated, count = pattern.subn(
+            lambda match, value=values[field]: "{}{}{}".format(
+                match.group(1), str(value).lower(), match.group(2)
+            ),
+            updated,
+        )
+        if count != 1:
+            raise PackageError(
+                "配置字段 {} 应恰好出现一次：{}".format(field, path)
+            )
+
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=str(path.parent),
+            prefix="{}.".format(path.name),
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary_path = Path(stream.name)
+            stream.write(updated.encode(encoding))
+        os.replace(str(temporary_path), str(path))
+    except OSError as exc:
+        if temporary_path:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise PackageError("无法更新配置模式：{} ({})".format(path, exc)) from exc
 
 
 def normalize_name(value: object) -> str:
@@ -194,9 +268,6 @@ def select_profile(project: Path, engine: Path) -> tuple[Path | None, dict | Non
         for path in iter_profile_files(root, max_depth=max_depth):
             files[os.path.normcase(str(path))] = path
 
-    for path in sorted(files.values(), key=lambda item: str(item).casefold()):
-        print("[找到配置文件] {}".format(path))
-
     matches = []
     for path in files.values():
         try:
@@ -211,6 +282,7 @@ def select_profile(project: Path, engine: Path) -> tuple[Path | None, dict | Non
         return None, None
     matches.sort(key=lambda item: (item[0], item[1], str(item[2]).casefold()), reverse=True)
     _, _, path, data = matches[0]
+    print("[找到配置文件] {}".format(path))
     return path, data
 
 
@@ -365,15 +437,13 @@ def choose_output_directory(
     project: Path,
     data: dict | None,
     work_directory: str | None,
-    exact_output: bool,
+    dlc: bool,
 ) -> Path:
     if work_directory:
         root = Path(work_directory).expanduser()
     else:
         profile_output = profile_output_directory(data)
         if profile_output:
-            if exact_output:
-                return profile_output.resolve()
             root = (
                 profile_output.parent
                 if TIMESTAMP_RE.fullmatch(profile_output.name)
@@ -382,14 +452,13 @@ def choose_output_directory(
         else:
             root = project.parent / "Saved/PackagedBuilds"
     root = root.resolve()
-    if exact_output:
-        return root
 
     timestamp = datetime.now().strftime("%Y%m%d%H%M")
-    candidate = root / timestamp
+    directory_name = "{}_DLC".format(timestamp) if dlc else timestamp
+    candidate = root / directory_name
     index = 1
     while candidate.exists():
-        candidate = root / "{}_{:02d}".format(timestamp, index)
+        candidate = root / "{}_{:02d}".format(directory_name, index)
         index += 1
     return candidate
 
@@ -613,7 +682,11 @@ def parse_args(argv=None):
         help="构建配置，默认 shipping；debug 使用 DebugGame",
     )
     parser.add_argument("--engine-root", help="Unreal 安装根目录、Engine 目录或 RunUAT.bat")
-    parser.add_argument("--exact-output", action="store_true", help="工作目录就是最终输出目录")
+    parser.add_argument(
+        "--dlc",
+        action="store_true",
+        help="使用 DLC 模式；默认使用非 DLC 模式",
+    )
     parser.add_argument("--dry-run", action="store_true", help="只打印计划和命令")
     return parser.parse_args(argv)
 
@@ -636,13 +709,17 @@ def main(argv=None) -> int:
         project_data = read_json(project)
         engine, run_uat_path = resolve_engine(project, project_data, args.engine_root)
         profile_path, profile_data = select_profile(project, engine)
+        if args.dlc and (profile_path is None or profile_data is None):
+            raise PackageError("DLC 模式必须匹配包含模式字段的 .ulp2 配置")
+        if profile_data is not None:
+            apply_packaging_mode(profile_data, args.dlc)
         script = profile_script(profile_data or {})
         editor_command = find_editor_command(engine, script)
         output_directory = choose_output_directory(
             project,
             profile_data,
             args.work_directory,
-            args.exact_output,
+            args.dlc,
         )
         parameters = build_parameters(
             project,
@@ -656,6 +733,14 @@ def main(argv=None) -> int:
 
         print("[工程] {}".format(project))
         print("[配置文件] {}".format(profile_path or "未匹配，使用默认参数"))
+        print("[打包模式] {}".format("DLC" if args.dlc else "非 DLC"))
+        if profile_data is not None:
+            print(
+                "[模式配置] CreateReleaseVersion={}, CreateDLC={}".format(
+                    str(profile_data["CreateReleaseVersion"]).lower(),
+                    str(profile_data["CreateDLC"]).lower(),
+                )
+            )
         print("[构建配置] {}".format(args.configuration))
         print("[输出目录] {}".format(output_directory))
         print("[命令] {}".format(subprocess.list2cmdline(command)))
@@ -665,6 +750,9 @@ def main(argv=None) -> int:
 
         if output_directory.exists() and any(output_directory.iterdir()):
             raise PackageError("输出目录不是空目录，已禁止覆盖：{}".format(output_directory))
+        if profile_path is not None:
+            update_profile_packaging_mode(profile_path, args.dlc)
+            print("[已更新配置模式] {}".format(profile_path))
         output_directory.mkdir(parents=True, exist_ok=True)
         log_path = output_directory.parent / "{}-BuildCookRun.log".format(output_directory.name)
         print("[日志] {}".format(log_path))

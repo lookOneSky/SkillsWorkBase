@@ -42,7 +42,7 @@
 	"AddPatchLevel": false,
 	"StageBaseReleasePaks": false,
 	"DLCIncludeEngineContent": false,
-	"CreateReleaseVersion": false,
+	"CreateReleaseVersion": true,
 	"CreateReleaseVersionName": "",
 	"BasedOnReleaseVersionName": "",
 	"ReferenceContainerGlobalFileName": "",
