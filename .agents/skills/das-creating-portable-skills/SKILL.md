@@ -1,6 +1,6 @@
 ---
 name: das-creating-portable-skills
-description: 创建或修改可部署到 Claude 与 Codex 的 Skill。处理 SKILL.md 时使用。
+description: 创建或修改可部署到 Claude、Codex 与 WorkBuddy 的 Skill。处理 SKILL.md 时使用。
 user-invocable: false
 ---
 

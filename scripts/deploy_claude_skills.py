@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""将共享 Skill 与 Claude 专用 Skill 安装到当前用户目录。"""
+"""将共享 Skill 与 Claude 专用 Skill 安装到支持的 AI 客户端。"""
 
 from __future__ import annotations
 
@@ -19,6 +19,8 @@ CLAUDE_SOURCE_ROOT = ROOT / ".claude" / "skills"
 TARGET_ROOTS = (
     ("Claude", Path.home() / ".claude" / "skills"),
     ("Codex", Path.home() / ".agents" / "skills"),
+    ("WorkBuddy", Path.home() / ".codebuddy" / "skills"),
+    ("WorkBuddy Legacy", Path.home() / ".workbuddy" / "skills"),
 )
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -81,7 +83,7 @@ def install_to(name: str, source: Path, target_root: Path, product: str) -> None
     def ignore(directory: str, names: list[str]) -> set[str]:
         ignored = {item for item in names if item == "__pycache__" or item.endswith(".pyc")}
         if (
-            product == "Claude"
+            product != "Codex"
             and Path(directory).resolve() == source_resolved
             and "agents" in names
         ):
@@ -194,7 +196,7 @@ def read_key() -> str:
 
 
 def choose_action() -> str | None:
-    print("Claude/Codex 用户级 Skill 部署工具")
+    print("Claude/Codex/WorkBuddy 用户级 Skill 部署工具")
     print(f"共享 Skill 源：{SHARED_SOURCE_ROOT}")
     print(f"Claude 专用 Skill 源：{CLAUDE_SOURCE_ROOT}")
     for product, target_root in TARGET_ROOTS:

@@ -48,7 +48,7 @@ def deploy(repository_dir: Path) -> None:
     if not deploy_script.is_file():
         raise FileNotFoundError(f"未找到部署入口：{deploy_script}")
 
-    print("正在非交互部署 Claude/Codex Skills")
+    print("正在非交互部署 Claude/Codex/WorkBuddy Skills")
     run(
         [sys.executable, str(deploy_script), "--action", "install"],
         cwd=repository_dir,

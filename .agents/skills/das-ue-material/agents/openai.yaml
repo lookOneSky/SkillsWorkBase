@@ -1,0 +1,4 @@
+interface:
+  display_name: "Unreal 母材质"
+  short_description: "用单个 Custom 节点创建带默认参数的 UE 母材质"
+  default_prompt: "使用 $das-ue-material 创建或修改这个 Unreal Engine 母材质。"
