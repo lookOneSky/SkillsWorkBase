@@ -1,0 +1,4 @@
+interface:
+  display_name: "Unreal OBJ 导入"
+  short_description: "批量导入 OBJ 并修改纹理属性"
+  default_prompt: "使用 $das-ue-import-obj 把 OBJ 目录导入当前 Unreal 项目。"

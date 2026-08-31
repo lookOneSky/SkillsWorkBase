@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import sys
@@ -16,12 +17,42 @@ FRONTMATTER_RE = re.compile(r"\A---\s*\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", re.DOTALL
 ROOT = Path(__file__).resolve().parent.parent
 SHARED_SOURCE_ROOT = ROOT / ".agents" / "skills"
 CLAUDE_SOURCE_ROOT = ROOT / ".claude" / "skills"
-TARGET_ROOTS = (
-    ("Claude", Path.home() / ".claude" / "skills"),
-    ("Codex", Path.home() / ".agents" / "skills"),
-    ("WorkBuddy", Path.home() / ".codebuddy" / "skills"),
-    ("WorkBuddy Legacy", Path.home() / ".workbuddy" / "skills"),
-)
+
+
+def workbuddy_config_dir() -> Path:
+    """与 WorkBuddy 桌面端 getWorkbuddyConfigDir() 一致地解析配置目录。
+
+    桌面端启动时会由 ensureWorkbuddyCustomUserDataDirEnv() 依据
+    cli/product.json 的 customUserDataDir 把 WORKBUDDY_CONFIG_DIR 设为
+    ~/.workbuddy-ai，因此脚本在应用进程外运行时以该目录为默认值。
+    """
+    for key in ("WORKBUDDY_CONFIG_DIR", "CODEBUDDY_CONFIG_DIR"):
+        value = os.environ.get(key, "").strip()
+        if value:
+            return Path(value)
+    return Path.home() / ".workbuddy-ai"
+
+
+def build_target_roots() -> tuple[tuple[str, Path], ...]:
+    home = Path.home()
+    candidates = (
+        ("Claude", home / ".claude" / "skills"),
+        ("Codex", home / ".agents" / "skills"),
+        ("WorkBuddy", workbuddy_config_dir() / "skills"),
+        ("WorkBuddy Compat", home / ".codebuddy" / "skills"),
+        ("WorkBuddy Legacy", home / ".workbuddy" / "skills"),
+    )
+    roots: list[tuple[str, Path]] = []
+    seen: set[Path] = set()
+    for product, root in candidates:
+        if root in seen:
+            continue
+        seen.add(root)
+        roots.append((product, root))
+    return tuple(roots)
+
+
+TARGET_ROOTS = build_target_roots()
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")

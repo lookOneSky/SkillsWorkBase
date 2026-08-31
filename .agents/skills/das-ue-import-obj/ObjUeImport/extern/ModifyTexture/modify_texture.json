@@ -1,0 +1,8 @@
+{
+  "content_directory": "/Game/Mesh/test",
+  "recursive": true,
+  "texture_properties": {
+    "virtual_texture_streaming": false,
+    "max_texture_size": 2048
+  }
+}

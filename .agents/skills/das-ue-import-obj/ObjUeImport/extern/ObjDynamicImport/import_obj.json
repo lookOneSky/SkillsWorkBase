@@ -1,0 +1,59 @@
+{
+  "project_file": "E:/CodeAll/DasLMSK/DasLMSK_ObjImport.uproject",
+  "unreal_editor_cmd": "../../../Binaries/Win64/UnrealEditor-Cmd.exe",
+  "enabled_plugins": [
+    "PythonScriptPlugin",
+    "EditorScriptingUtilities"
+  ],
+  "commandlet_arguments": [
+    "-unattended",
+    "-nop4",
+    "-nosplash",
+    "-DisablePlugins=DasApplication,CesiumForUnreal,DasAssetLibrary,DasUnreal,DasPixel,PixelStreaming",
+    "-stdout",
+    "-FullStdOutLogOutput"
+  ],
+  "destination_root": "/Game/ObjImport/{timestamp}",
+  "asset_name_prefix": "SM_",
+  "parent_material": "/Game/DasMaterial/MI_Model.MI_Model",
+  "validate_parent_material_parameters": true,
+  "require_parent_material_instances": true,
+  "import_task": {
+    "automated": true,
+    "replace_existing": true,
+    "replace_existing_settings": true,
+    "save": true,
+    "async_": false
+  },
+  "obj_import_ui": {
+    "mesh_type_to_import": "FBXIT_STATIC_MESH",
+    "override_full_name": true,
+    "import_as_skeletal": false,
+    "import_mesh": true,
+    "import_animations": false,
+    "import_materials": true,
+    "import_textures": true,
+    "automated_import_should_detect_type": false
+  },
+  "static_mesh_import_data": {
+    "combine_meshes": false,
+    "remove_degenerates": true,
+    "build_nanite": true,
+    "generate_lightmap_u_vs": true,
+    "import_uniform_scale": 100.0,
+    "convert_scene": true,
+    "force_front_x_axis": true,
+    "convert_scene_unit": false
+  },
+  "texture_import_data": {
+    "invert_normal_maps": false,
+    "material_search_location": "DO_NOT_SEARCH",
+    "base_color_name": "",
+    "base_diffuse_texture_name": "TEX_漫反射",
+    "base_normal_texture_name": "TEX_法线",
+    "base_emissive_color_name": "",
+    "base_emmisive_texture_name": "",
+    "base_specular_texture_name": "",
+    "base_opacity_texture_name": ""
+  }
+}
