@@ -12,6 +12,10 @@ PROPERTY_UPDATE_ORDER = (
     "max_texture_size",
     "virtual_texture_streaming",
 )
+CLEANUP_DEFAULTS = {
+    "unload_processed": True,
+    "interval": 50,
+}
 LOG_PREFIX = "[TexturePropertyBatch]"
 
 
@@ -30,6 +34,32 @@ def _get_config_path():
     if not config_path.is_absolute():
         config_path = script_directory / config_path
     return config_path.resolve()
+
+
+def _load_cleanup_config(config):
+    cleanup = config.get("cleanup", {})
+    if not isinstance(cleanup, dict):
+        raise ValueError("cleanup 必须是对象。")
+
+    unknown_fields = set(cleanup) - set(CLEANUP_DEFAULTS)
+    if unknown_fields:
+        raise ValueError(
+            "不支持的 cleanup 字段：{}".format(", ".join(sorted(unknown_fields)))
+        )
+
+    unload_processed = cleanup.get(
+        "unload_processed", CLEANUP_DEFAULTS["unload_processed"]
+    )
+    if not isinstance(unload_processed, bool):
+        raise ValueError("cleanup.unload_processed 必须是 true 或 false。")
+
+    interval = cleanup.get("interval", CLEANUP_DEFAULTS["interval"])
+    if isinstance(interval, bool) or not isinstance(interval, int):
+        raise ValueError("cleanup.interval 必须是整数。")
+    if interval < 1:
+        raise ValueError("cleanup.interval 不能小于 1。")
+
+    return unload_processed, interval
 
 
 def _load_config(config_path):
@@ -87,7 +117,41 @@ def _load_config(config_path):
         if max_texture_size and max_texture_size & (max_texture_size - 1):
             raise ValueError("max_texture_size 必须为 0 或 2 的幂。")
 
-    return content_directory, recursive, texture_properties
+    cleanup = _load_cleanup_config(config)
+
+    return content_directory, recursive, texture_properties, cleanup
+
+
+def _is_texture_asset(asset_subsystem, asset_path):
+    """Reject non-texture assets from the AssetRegistry so they are never loaded."""
+    asset_data = asset_subsystem.find_asset_data(asset_path)
+    if not asset_data.is_valid():
+        return False
+
+    asset_class = asset_data.get_class()
+    if asset_class is None:
+        # 类解析不出来就放行，交给调用方的 isinstance 兜底，宁可多加载也不漏纹理。
+        return True
+    return unreal.MathLibrary.class_is_child_of(
+        asset_class, unreal.Texture2D.static_class()
+    )
+
+
+def _unload_packages(packages):
+    """Free these packages; plain collect_garbage keeps RF_Standalone assets alive."""
+    if not packages:
+        return
+
+    try:
+        unloaded, message = unreal.EditorLoadingAndSavingUtils.unload_packages(packages)
+    except Exception as error:
+        unreal.log_warning("{} 卸载资产失败：{}".format(LOG_PREFIX, error))
+        return
+
+    if not unloaded:
+        unreal.log_warning(
+            "{} 有资产未能卸载：{}".format(LOG_PREFIX, message or "仍被引用")
+        )
 
 
 def _modify_texture(texture, texture_properties):
@@ -107,8 +171,11 @@ def _modify_texture(texture, texture_properties):
     return changed_properties
 
 
-def modify_texture_properties(content_directory, recursive, texture_properties):
+def modify_texture_properties(
+    content_directory, recursive, texture_properties, cleanup
+):
     """Update and save Texture2D assets under content_directory."""
+    unload_processed, cleanup_interval = cleanup
     asset_subsystem = unreal.get_editor_subsystem(unreal.EditorAssetSubsystem)
     if not asset_subsystem.does_directory_exist(content_directory):
         raise ValueError("内容目录不存在：{}".format(content_directory))
@@ -121,6 +188,7 @@ def modify_texture_properties(content_directory, recursive, texture_properties):
     texture_count = 0
     changed_count = 0
     failed_assets = []
+    pending_packages = []
 
     unreal.log(
         "{} 开始扫描 {}，共发现 {} 个资产。".format(
@@ -138,6 +206,9 @@ def modify_texture_properties(content_directory, recursive, texture_properties):
             if slow_task.should_cancel():
                 unreal.log_warning("{} 用户取消了处理。".format(LOG_PREFIX))
                 break
+
+            if not _is_texture_asset(asset_subsystem, asset_path):
+                continue
 
             asset = asset_subsystem.load_asset(asset_path)
             if not isinstance(asset, unreal.Texture2D):
@@ -169,6 +240,22 @@ def modify_texture_properties(content_directory, recursive, texture_properties):
                 unreal.log_error(
                     "{} 处理失败：{}；{}".format(LOG_PREFIX, asset_path, error)
                 )
+            finally:
+                # 收集与卸载都必须待在 finally 里：上面几条 continue 会跳过循环体末尾，
+                # 放在外面的话「属性没变」这条路径永远攒不满一批，等于没清理。
+                package = asset.get_outermost() if unload_processed else None
+                asset = None  # 断开 Python 引用，否则卸载时对象会被钉住。
+                if unload_processed:
+                    if package:
+                        pending_packages.append(package)
+                    if len(pending_packages) >= cleanup_interval:
+                        _unload_packages(pending_packages)
+                        pending_packages = []
+
+    if unload_processed:
+        # 取消退出时也要走到，把最后不足一批的资产收干净。
+        _unload_packages(pending_packages)
+        pending_packages = []
 
     unreal.log(
         "{} 完成：扫描 Texture2D {} 个，修改并保存 {} 个，失败 {} 个。".format(
@@ -180,12 +267,15 @@ def modify_texture_properties(content_directory, recursive, texture_properties):
 
 def main():
     config_path = _get_config_path()
-    content_directory, recursive, texture_properties = _load_config(config_path)
+    content_directory, recursive, texture_properties, cleanup = _load_config(
+        config_path
+    )
     unreal.log("{} 使用配置：{}".format(LOG_PREFIX, config_path))
     _, failed_assets = modify_texture_properties(
         content_directory,
         recursive,
         texture_properties,
+        cleanup,
     )
     if failed_assets:
         raise RuntimeError(

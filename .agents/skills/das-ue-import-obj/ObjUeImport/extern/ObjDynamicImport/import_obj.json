@@ -18,6 +18,10 @@
   "parent_material": "/Game/DasMaterial/MI_Model.MI_Model",
   "validate_parent_material_parameters": true,
   "require_parent_material_instances": true,
+  "cleanup": {
+    "unload_after_import": true,
+    "interval": 1
+  },
   "import_task": {
     "automated": true,
     "replace_existing": true,

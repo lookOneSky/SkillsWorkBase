@@ -30,6 +30,11 @@ _VECTOR_PARAMETER_PROPERTIES = (
 
 _LEGACY_MATERIAL_MOUNT = "/DasTest/"
 
+_CLEANUP_DEFAULTS = {
+    "unload_after_import": True,
+    "interval": 1,
+}
+
 
 def _load_json(config_path):
     try:
@@ -288,7 +293,63 @@ def _validate_boolean_config(config, property_name, default_value):
     return value
 
 
-def _run_import(source_file, config, destination_path):
+def _load_cleanup_config(config):
+    cleanup = config.get("cleanup", {})
+    if not isinstance(cleanup, dict):
+        raise ObjImportError("cleanup 必须是 JSON 对象")
+
+    unknown_fields = set(cleanup) - set(_CLEANUP_DEFAULTS)
+    if unknown_fields:
+        raise ObjImportError(
+            "不支持的 cleanup 字段：{}".format(", ".join(sorted(unknown_fields)))
+        )
+
+    unload_after_import = _validate_boolean_config(
+        cleanup, "unload_after_import", _CLEANUP_DEFAULTS["unload_after_import"]
+    )
+
+    interval = cleanup.get("interval", _CLEANUP_DEFAULTS["interval"])
+    if isinstance(interval, bool) or not isinstance(interval, int):
+        raise ObjImportError("cleanup.interval 必须是整数")
+    if interval < 1:
+        raise ObjImportError("cleanup.interval 不能小于 1")
+
+    return unload_after_import, interval
+
+
+def _collect_packages(imported_objects):
+    packages = []
+    seen_names = set()
+    for imported_object in imported_objects:
+        package = imported_object.get_outermost()
+        if not package:
+            continue
+        package_name = package.get_name()
+        if package_name in seen_names:
+            continue
+        seen_names.add(package_name)
+        packages.append(package)
+    return packages
+
+
+def _unload_packages(packages):
+    """Free imported assets; plain collect_garbage keeps RF_Standalone assets alive."""
+    if not packages:
+        return
+
+    try:
+        unloaded, message = unreal.EditorLoadingAndSavingUtils.unload_packages(packages)
+    except Exception as error:
+        unreal.log_warning("OBJ_IMPORT_UNLOAD_SKIPPED={}".format(error))
+        return
+
+    if not unloaded:
+        unreal.log_warning(
+            "OBJ_IMPORT_UNLOAD_SKIPPED={}".format(message or "资产仍被引用")
+        )
+
+
+def _run_import(source_file, config, destination_path, collect_packages):
     source_stem = _sanitize_asset_name(source_file.stem)
     asset_prefix = config.get("asset_name_prefix", "")
     if not isinstance(asset_prefix, str):
@@ -350,6 +411,7 @@ def _run_import(source_file, config, destination_path):
     textures = [
         value for value in imported_objects if isinstance(value, unreal.Texture)
     ]
+    saved = bool(task_config.get("save", True))
     result = {
         "source_file": str(source_file),
         "destination_path": destination_path,
@@ -365,9 +427,14 @@ def _run_import(source_file, config, destination_path):
         ),
         "textures": sorted(value.get_path_name() for value in textures),
         "parent_material": parent_material.get_path_name(),
-        "saved": bool(task_config.get("save", True)),
+        "saved": saved,
     }
     unreal.log("OBJ_IMPORT_RESULT=" + json.dumps(result, ensure_ascii=False, sort_keys=True))
+
+    # 没保存的资产是 dirty 的，UnloadPackages 会跳过它们，交出去只会白跑一次 GC。
+    if not collect_packages or not saved:
+        return []
+    return _collect_packages(imported_objects)
 
 
 def main():
@@ -402,13 +469,25 @@ def main():
         else:
             raise ObjImportError("OBJ 输入路径无效：{}".format(source_path))
         config = _load_json(config_path)
+        unload_after_import, cleanup_interval = _load_cleanup_config(config)
         _register_legacy_material_mount()
         batch_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         destination_path = _normalize_game_directory(
             config.get("destination_root"), batch_timestamp
         )
-        for source_file in source_files:
-            _run_import(source_file, config, destination_path)
+        pending_packages = []
+        for index, source_file in enumerate(source_files, start=1):
+            pending_packages.extend(
+                _run_import(
+                    source_file, config, destination_path, unload_after_import
+                )
+            )
+            if unload_after_import and index % cleanup_interval == 0:
+                _unload_packages(pending_packages)
+                pending_packages = []
+        if unload_after_import:
+            _unload_packages(pending_packages)
+            pending_packages = []
         unreal.log(
             "OBJ_IMPORT_BATCH_RESULT="
             + json.dumps(

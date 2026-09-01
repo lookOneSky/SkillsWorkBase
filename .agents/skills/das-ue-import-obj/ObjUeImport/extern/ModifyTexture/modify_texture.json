@@ -4,5 +4,9 @@
   "texture_properties": {
     "virtual_texture_streaming": false,
     "max_texture_size": 2048
+  },
+  "cleanup": {
+    "unload_processed": true,
+    "interval": 50
   }
 }

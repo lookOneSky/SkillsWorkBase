@@ -87,13 +87,17 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
 
 - `destination_root`、`asset_name_prefix`、`parent_material`、`import_task`、`obj_import_ui`、`static_mesh_import_data`、`texture_import_data` 等由 `import_obj.py` 使用；
 - `enabled_plugins` 拼成 `-EnablePlugins=`，`commandlet_arguments` 原样追加到命令行。程序会自动补齐缺失的 `-unattended`、`-nosplash`、`-stdout`、`-FullStdOutLogOutput`、`-UTF8Output`——少了前几个会看不到日志或卡在无人应答的弹窗上，少了 `-UTF8Output` 则脚本里的中文会被逐字输出成 `?`；
+- `cleanup.unload_after_import`（缺省 `true`）每导入完一批就卸载这批资产并回收内存，`cleanup.interval`（缺省 `1`）是攒多少个 OBJ 卸载一次。整段 `cleanup` 可以省略；`import_task.save=false` 时不会卸载，避免丢掉没保存的改动；
 - `project_file` 与 `destination_root` 每次运行都会被临时配置覆盖，改这两项对本工具无效——用位置参数和 `--destination`。
 
 `modify_texture.json`：
 
 - `texture_properties` 支持 `max_texture_size` 与 `virtual_texture_streaming`，至少要有一项；
 - `recursive` 缺省为 `true`；
+- `cleanup.unload_processed`（缺省 `true`）在处理过程中分批卸载已改完的纹理，`cleanup.interval`（缺省 `50`）是攒多少张卸载一次。整段 `cleanup` 可以省略；调小更省内存、但 GC 更频繁，4K 纹理建议 30~50；
 - `content_directory` 每次运行都会被覆盖成本批次的导入目录。
+
+导入的资产带 `RF_Standalone` 标记，编辑器里的常规 GC 不会回收，因此不做清理时内存会随资产数量线性上涨——一批几千张 4K 纹理可以吃掉几十 GB。清理走的是 `UnloadPackages`（先保存、再清标记、再 GC），仍被引用的资产会被安全跳过并打印 `OBJ_IMPORT_UNLOAD_SKIPPED=`。
 
 ## 日志标记
 
@@ -104,6 +108,7 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
 | `OBJ_IMPORT_RESULT=` | 一个 OBJ 导入完成，后面是该次导入的 JSON 明细 |
 | `OBJ_IMPORT_BATCH_RESULT=` | 整批导入完成，含批次目录与文件数 |
 | `OBJ_IMPORT_ERROR=` | 导入脚本报错，失败信息会被提取成最终错误 |
+| `OBJ_IMPORT_UNLOAD_SKIPPED=` | 导入阶段有资产没能卸载（仍被引用），只影响内存占用，不影响导入结果 |
 | `[TexturePropertyBatch]` | 改纹理阶段的日志前缀 |
 
 ## 退出码
