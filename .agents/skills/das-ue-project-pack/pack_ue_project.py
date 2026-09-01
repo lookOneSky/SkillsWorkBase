@@ -45,6 +45,17 @@ COOK_FAILURE_RE = re.compile(
     re.IGNORECASE,
 )
 PROFILE_MODE_FIELDS = ("CreateReleaseVersion", "CreateDLC")
+RELEASE_DIRECTORY_NAME = "Releases"
+RELEASE_METADATA_RELATIVE = "Metadata/DevelopmentAssetRegistry.bin"
+RELEASE_VERSION_RE = re.compile(r"^\d{12}$")
+OUTPUT_INDEX_SUFFIX_RE = re.compile(r"_\d{2}$")
+DLC_ONLY_PARAMETERS = ("dlcname", "generatepatch", "stagebasereleasepaks", "addpatchlevel")
+RELEASE_PARAMETERS = (
+    "createreleaseversion",
+    "createreleaseversionroot",
+    "basedonreleaseversion",
+    "basedonreleaseversionroot",
+)
 
 
 class PackageError(RuntimeError):
@@ -433,12 +444,12 @@ def profile_output_directory(data: dict | None) -> Path | None:
     return Path(value).expanduser() if value else None
 
 
-def choose_output_directory(
+def resolve_output_root(
     project: Path,
     data: dict | None,
     work_directory: str | None,
-    dlc: bool,
 ) -> Path:
+    """确定打包工作目录，本次输出与基线都放在该目录下"""
     if work_directory:
         root = Path(work_directory).expanduser()
     else:
@@ -451,8 +462,11 @@ def choose_output_directory(
             )
         else:
             root = project.parent / "Saved/PackagedBuilds"
-    root = root.resolve()
+    return root.resolve()
 
+
+def choose_output_directory(root: Path, dlc: bool) -> Path:
+    """在打包工作目录下选出本次输出目录，重名时追加序号"""
     timestamp = datetime.now().strftime("%Y%m%d%H%M")
     directory_name = "{}_DLC".format(timestamp) if dlc else timestamp
     candidate = root / directory_name
@@ -463,13 +477,77 @@ def choose_output_directory(
     return candidate
 
 
+def release_root(output_root: Path) -> Path:
+    """基线根目录，位于打包工作目录下"""
+    return output_root / RELEASE_DIRECTORY_NAME
+
+
+def release_version_name(output_directory: Path) -> str:
+    """主干基线版本名，去掉输出目录的重名序号后缀"""
+    return OUTPUT_INDEX_SUFFIX_RE.sub("", output_directory.name)
+
+
+def has_release_payload(directory: Path) -> bool:
+    """基线目录下任一平台目录含开发期资产注册表即视为可用"""
+    try:
+        platforms = [item for item in directory.iterdir() if item.is_dir()]
+    except OSError:
+        return False
+    return any((item / RELEASE_METADATA_RELATIVE).is_file() for item in platforms)
+
+
+def latest_release_version(output_root: Path) -> str | None:
+    """取打包工作目录中最新的可用基线版本名"""
+    root = release_root(output_root)
+    if not root.is_dir():
+        return None
+    names = sorted(
+        item.name
+        for item in root.iterdir()
+        if item.is_dir()
+        and RELEASE_VERSION_RE.fullmatch(item.name)
+        and has_release_payload(item)
+    )
+    return names[-1] if names else None
+
+
+def apply_release_parameters(
+    parameters: dict,
+    output_root: Path,
+    output_directory: Path,
+    dlc: bool,
+) -> None:
+    """主干打包写出基线，DLC 打包引用打包目录中最新的基线"""
+    for key in RELEASE_PARAMETERS:
+        parameters.pop(key, None)
+    if dlc:
+        if not parameters.get("dlcname"):
+            raise PackageError("DLC 模式必须在配置中提供 DLCName")
+        version = latest_release_version(output_root)
+        if not version:
+            raise PackageError(
+                "未找到可用基线，请先在同一目录完成一次主干打包：{}".format(
+                    release_root(output_root)
+                )
+            )
+        parameters["basedonreleaseversionroot"] = str(release_root(output_root))
+        parameters["basedonreleaseversion"] = version
+        return
+    for key in DLC_ONLY_PARAMETERS:
+        parameters.pop(key, None)
+    parameters["createreleaseversionroot"] = str(release_root(output_root))
+    parameters["createreleaseversion"] = release_version_name(output_directory)
+
+
 def build_parameters(
     project: Path,
+    output_root: Path,
     output_directory: Path,
     configuration: str,
     editor_command: Path,
     engine: Path,
     data: dict | None,
+    dlc: bool,
 ) -> dict:
     script = profile_script(data or {})
     if script:
@@ -552,6 +630,7 @@ def build_parameters(
     if (engine / "Build/InstalledBuild.txt").is_file():
         parameters["installed"] = True
     parameters["stagingdirectory"] = str(output_directory)
+    apply_release_parameters(parameters, output_root, output_directory, dlc)
     return parameters
 
 
@@ -715,19 +794,17 @@ def main(argv=None) -> int:
             apply_packaging_mode(profile_data, args.dlc)
         script = profile_script(profile_data or {})
         editor_command = find_editor_command(engine, script)
-        output_directory = choose_output_directory(
-            project,
-            profile_data,
-            args.work_directory,
-            args.dlc,
-        )
+        output_root = resolve_output_root(project, profile_data, args.work_directory)
+        output_directory = choose_output_directory(output_root, args.dlc)
         parameters = build_parameters(
             project,
+            output_root,
             output_directory,
             args.configuration,
             editor_command,
             engine,
             profile_data,
+            args.dlc,
         )
         command = build_command(run_uat_path, project, parameters)
 
@@ -743,6 +820,18 @@ def main(argv=None) -> int:
             )
         print("[构建配置] {}".format(args.configuration))
         print("[输出目录] {}".format(output_directory))
+        if args.dlc:
+            print(
+                "[基线来源] {}".format(
+                    release_root(output_root) / parameters["basedonreleaseversion"]
+                )
+            )
+        else:
+            print(
+                "[基线输出] {}".format(
+                    release_root(output_root) / parameters["createreleaseversion"]
+                )
+            )
         print("[命令] {}".format(subprocess.list2cmdline(command)))
         if args.dry_run:
             print("[结果] dry-run，未执行打包")
