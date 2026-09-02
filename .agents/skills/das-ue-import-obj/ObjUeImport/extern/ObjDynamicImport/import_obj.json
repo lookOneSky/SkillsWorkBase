@@ -9,6 +9,7 @@
     "-unattended",
     "-nop4",
     "-nosplash",
+    "-AllowCommandletRendering",
     "-DisablePlugins=DasApplication,CesiumForUnreal,DasAssetLibrary,DasUnreal,DasPixel,PixelStreaming",
     "-stdout",
     "-FullStdOutLogOutput"
@@ -18,6 +19,7 @@
   "parent_material": "/Game/DasMaterial/MI_Model.MI_Model",
   "validate_parent_material_parameters": true,
   "require_parent_material_instances": true,
+  "build_static_mesh_ddc": true,
   "cleanup": {
     "unload_after_import": true,
     "interval": 1

@@ -21,10 +21,12 @@ UE Python 对象。
 5. `material_search_location=DO_NOT_SEARCH` 可避免复用同名旧材质，保证按 `parent_material` 新建材质实例。
 6. `require_parent_material_instances=true` 会在导入后校验每个材质槽均为母材质实例；OBJ 应提供有效的
    `.mtl`，材质贴图路径应相对于 OBJ/MTL 可访问。
-7. `cleanup.unload_after_import` 默认 `true`，每导入完一批就调用 `UnloadPackages` 卸载这批资产并回收内存；
+7. `build_static_mesh_ddc=true` 会在每个 OBJ 导入后等待 StaticMesh 构建及 DDC 写入完成，
+   再保存资产。
+8. `cleanup.unload_after_import` 默认 `true`，每导入完一批就调用 `UnloadPackages` 卸载这批资产并回收内存；
    `cleanup.interval` 默认 `1`，表示攒多少个 OBJ 卸载一次。导入的资产带 `RF_Standalone`，常规 GC 不会回收，
    关掉这项时内存会随 OBJ 数量线性上涨。`import_task.save=false` 时不会卸载，避免丢掉没保存的改动。
-8. 其余 `import_task`、`obj_import_ui`、`static_mesh_import_data` 和 `texture_import_data` 项均直接映射
+9. 其余 `import_task`、`obj_import_ui`、`static_mesh_import_data` 和 `texture_import_data` 项均直接映射
    UE Python 属性。
 
 OBJ/MTL 常用映射：

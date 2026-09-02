@@ -66,7 +66,7 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
    出错时可以直接打开这两个文件核对实际生效的配置。
 4. 启动一次 `UnrealEditor-Cmd.exe`，依次执行导入与改纹理，全过程日志实时转发到标准输出。
 
-导入结果默认落在 `/Game/ObjImport/<YYYYMMDD_HHMMSS>`，对应物理目录 `<项目>\Content\ObjImport\<YYYYMMDD_HHMMSS>`；静态模型前缀 `SM_`，材质以 `/Game/DasMaterial/MI_Model` 为父级生成材质实例。
+导入结果默认落在 `/Game/ObjImport/<YYYYMMDD_HHMMSS>`，对应物理目录 `<项目>\Content\ObjImport\<YYYYMMDD_HHMMSS>`；静态模型前缀 `SM_`，材质以 `/Game/DasMaterial/MI_Model` 为父级生成材质实例。每个 OBJ 导入后会等待 StaticMesh 构建及 DDC 写入完成，再保存资产。
 
 ## 引擎定位顺序
 
@@ -85,8 +85,8 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
 
 `import_obj.json`（其余字段的含义见 `extern\ObjDynamicImport\README.md`）：
 
-- `destination_root`、`asset_name_prefix`、`parent_material`、`import_task`、`obj_import_ui`、`static_mesh_import_data`、`texture_import_data` 等由 `import_obj.py` 使用；
-- `enabled_plugins` 拼成 `-EnablePlugins=`，`commandlet_arguments` 原样追加到命令行。程序会自动补齐缺失的 `-unattended`、`-nosplash`、`-stdout`、`-FullStdOutLogOutput`、`-UTF8Output`——少了前几个会看不到日志或卡在无人应答的弹窗上，少了 `-UTF8Output` 则脚本里的中文会被逐字输出成 `?`；
+- `destination_root`、`asset_name_prefix`、`parent_material`、`build_static_mesh_ddc`、`import_task`、`obj_import_ui`、`static_mesh_import_data`、`texture_import_data` 等由 `import_obj.py` 使用；`build_static_mesh_ddc` 默认为 `true`；
+- `enabled_plugins` 拼成 `-EnablePlugins=`，`commandlet_arguments` 原样追加到命令行。程序会自动补齐缺失的 `-unattended`、`-nosplash`、`-stdout`、`-FullStdOutLogOutput`、`-UTF8Output`、`-AllowCommandletRendering`——少了前几个会看不到日志或卡在无人应答的弹窗上，少了 `-UTF8Output` 则脚本里的中文会被逐字输出成 `?`；少了 `-AllowCommandletRendering` 则 `FApp::CanEverRender()` 为 false，`UTexture::CachePlatformData` 直接跳过，纹理不会写入 DDC，编辑器下次打开会把所有纹理重建一遍（`import_obj.py` 启动时会检查这个参数，缺失直接报错）；
 - `cleanup.unload_after_import`（缺省 `true`）每导入完一批就卸载这批资产并回收内存，`cleanup.interval`（缺省 `1`）是攒多少个 OBJ 卸载一次。整段 `cleanup` 可以省略；`import_task.save=false` 时不会卸载，避免丢掉没保存的改动；
 - `project_file` 与 `destination_root` 每次运行都会被临时配置覆盖，改这两项对本工具无效——用位置参数和 `--destination`。
 
@@ -105,6 +105,7 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
 
 | 标记 | 含义 |
 | --- | --- |
+| `OBJ_IMPORT_DDC=` | 一个 StaticMesh 的构建及 DDC 请求已完成，后面是 LOD 和三角形统计 |
 | `OBJ_IMPORT_RESULT=` | 一个 OBJ 导入完成，后面是该次导入的 JSON 明细 |
 | `OBJ_IMPORT_BATCH_RESULT=` | 整批导入完成，含批次目录与文件数 |
 | `OBJ_IMPORT_ERROR=` | 导入脚本报错，失败信息会被提取成最终错误 |

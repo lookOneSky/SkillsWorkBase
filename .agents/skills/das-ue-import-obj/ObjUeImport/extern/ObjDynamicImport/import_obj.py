@@ -47,6 +47,32 @@ def _load_json(config_path):
     return config
 
 
+def _require_commandlet_rendering():
+    """Textures build no derived data without -AllowCommandletRendering.
+
+    UTexture::CachePlatformData is gated on FApp::CanEverRender(), which is
+    (!IsRunningCommandlet() || IsAllowCommandletRendering()) && !nullrhi. Under
+    -run=PythonScript the first term is false, so every texture would be saved with
+    an empty DDC and the editor would rebuild all of them on its next startup.
+    UStaticMesh has no such gate, which is why meshes come out fine either way.
+    """
+    command_line = unreal.SystemLibrary.get_command_line()
+    switches = {
+        token.strip().lstrip("-/").casefold()
+        for token in command_line.replace("\t", " ").split(" ")
+    }
+    if "nullrhi" in switches:
+        raise ObjImportError(
+            "命令行带有 -nullrhi，纹理不会构建 DDC，"
+            "编辑器下次打开会重新构建全部纹理。请去掉该参数。"
+        )
+    if "allowcommandletrendering" not in switches:
+        raise ObjImportError(
+            "命令行缺少 -AllowCommandletRendering，纹理不会构建 DDC，"
+            "编辑器下次打开会重新构建全部纹理。请在 commandlet_arguments 中加上该参数。"
+        )
+
+
 def _register_legacy_material_mount():
     """Resolve dependencies authored under the material bundle's old mount."""
     content_directory = os.path.abspath(unreal.Paths.project_content_dir()).replace(
@@ -349,6 +375,36 @@ def _unload_packages(packages):
         )
 
 
+def _wait_for_static_mesh_derived_data(static_meshes):
+    derived_data = []
+    for static_mesh in static_meshes:
+        mesh_path = static_mesh.get_path_name()
+        # The FBX importer has already invoked UStaticMesh::Build. Both methods
+        # below read RenderData, which forces UE's async static-mesh compiler to
+        # finish. FStaticMeshRenderData::Cache uses a blocking DDC put, so the
+        # derived data request has completed before these calls return.
+        triangle_count = static_mesh.get_num_triangles(0)
+        lod_count = static_mesh.get_num_lods()
+        if lod_count <= 0:
+            raise ObjImportError("静态模型没有可构建的 LOD：{}".format(mesh_path))
+        if triangle_count <= 0:
+            raise ObjImportError("静态模型 DDC 构建后没有有效三角形：{}".format(mesh_path))
+
+        derived_data.append(
+            {
+                "static_mesh": mesh_path,
+                "lod_count": lod_count,
+                "lod0_triangle_count": triangle_count,
+            }
+        )
+        unreal.log(
+            "OBJ_IMPORT_DDC={}".format(
+                json.dumps(derived_data[-1], ensure_ascii=False, sort_keys=True)
+            )
+        )
+    return derived_data
+
+
 def _run_import(source_file, config, destination_path, collect_packages):
     source_stem = _sanitize_asset_name(source_file.stem)
     asset_prefix = config.get("asset_name_prefix", "")
@@ -361,6 +417,9 @@ def _run_import(source_file, config, destination_path, collect_packages):
     )
     require_parent_instances = _validate_boolean_config(
         config, "require_parent_material_instances", True
+    )
+    build_static_mesh_ddc = _validate_boolean_config(
+        config, "build_static_mesh_ddc", True
     )
     parent_path = _normalize_object_path(config.get("parent_material"))
     import_ui, texture_import_config = _create_import_options(config, parent_path)
@@ -396,6 +455,11 @@ def _run_import(source_file, config, destination_path, collect_packages):
     static_meshes, material_instances = _verify_import(
         imported_objects, parent_material, require_parent_instances
     )
+    derived_data = (
+        _wait_for_static_mesh_derived_data(static_meshes)
+        if build_static_mesh_ddc
+        else []
+    )
     if task_config.get("save", True):
         if not unreal.EditorAssetLibrary.save_directory(
             destination_path, only_if_is_dirty=True, recursive=True
@@ -427,6 +491,8 @@ def _run_import(source_file, config, destination_path, collect_packages):
         ),
         "textures": sorted(value.get_path_name() for value in textures),
         "parent_material": parent_material.get_path_name(),
+        "static_mesh_ddc": derived_data,
+        "static_mesh_ddc_enabled": build_static_mesh_ddc,
         "saved": saved,
     }
     unreal.log("OBJ_IMPORT_RESULT=" + json.dumps(result, ensure_ascii=False, sort_keys=True))
@@ -470,6 +536,7 @@ def main():
             raise ObjImportError("OBJ 输入路径无效：{}".format(source_path))
         config = _load_json(config_path)
         unload_after_import, cleanup_interval = _load_cleanup_config(config)
+        _require_commandlet_rendering()
         _register_legacy_material_mount()
         batch_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         destination_path = _normalize_game_directory(
