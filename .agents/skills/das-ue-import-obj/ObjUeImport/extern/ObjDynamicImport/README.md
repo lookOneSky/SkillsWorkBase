@@ -16,6 +16,9 @@ UE Python 对象。
 2. `destination_root` 默认是 `/Game/ObjImport/{timestamp}`，`{timestamp}` 会在每次运行开始时替换为
    `YYYYMMDD_HHMMSS`，对应项目物理目录 `Content/ObjImport/YYYYMMDD_HHMMSS`。
 3. `parent_material` 默认是复制后的 `/Game/DasMaterial/MI_Model.MI_Model`。
+   `batch_parent_material.enabled` 默认 `true`，会在导入开始前把它复制成
+   `<batch_parent_material.destination_root>/MI_Model_<时间戳>`（缺省 `/Game/DasMaterial`），
+   本批次的材质实例全部挂到这份副本上，调参不影响历史批次。改成 `false` 则所有批次共用同一个母材质。
 4. `texture_import_data` 中非空的参数名必须存在于母材质。`base_emmisive_texture_name` 的 `emmisive`
    拼写来自 UE 5.3 属性名，请勿改为 `emissive`。
 5. `material_search_location=DO_NOT_SEARCH` 可避免复用同名旧材质，保证按 `parent_material` 新建材质实例。
@@ -64,13 +67,32 @@ import_obj.bat "D:\data\model.obj" "D:\config\import_obj.json"
 - 目录内直接包含本批次全部瓦块资产，不再为每个瓦块创建子目录
 - 静态模型前缀：`SM_`
 - 默认材质目录：工具内 `DasMaterial` 覆盖复制到项目 `Content/DasMaterial`
-- 材质：以 `/Game/DasMaterial/MI_Model.MI_Model` 为父级生成材质实例
+- 材质：以本批次副本 `/Game/DasMaterial/MI_Model_YYYYMMDD_HHMMSS` 为父级生成材质实例
 
 首次导入后若要覆盖同名资产，将 `import_task.replace_existing` 和 `replace_existing_settings` 改为 `true`。
+
+## 批次关卡（build_level.py）
+
+由 `obj_ue_import.exe` 在导入与改纹理都完成后执行，配置见 `build_level.json`：
+
+- `level_root` + `level_name_prefix` + 批次时间戳拼成关卡路径，默认 `/Game/ObjImport/mapObjImport_YYYYMMDD_HHMMSS`；
+- 批次目录里的全部 StaticMesh 用**同一个**偏移量放进关卡，瓦块相对位置与 OBJ 原始坐标一致；
+- `origin_alignment` 决定这个偏移量：`bottom_center`（缺省，XY 取总包围盒中心、Z 取最小值）、
+  `center`（XYZ 都取中心）、`xy_center`（只平移 XY，保留原始高程）；
+- `destination_path` 与 `batch_timestamp` 由工具写入临时配置，不需要手写。
+
+必须排在改纹理之后：关卡 Actor 会一直引用网格、材质与纹理，先建关卡会让
+`modify_texture.py` 的 `UnloadPackages` 全部落空。
 
 ## 源码依据
 
 - `FbxFactory.cpp`：`UFbxFactory` 注册并支持 `.obj`，指定工厂后不会转入 Interchange。
 - `FbxMainImport.cpp`：把 `texture_import_data` 的母材质和参数名写入导入选项。
-- `FbxMaterialImport.cpp`：使用 `MaterialInstanceConstantFactoryNew` 创建母材质实例并绑定 OBJ/MTL 纹理。
+- `FbxMaterialImport.cpp`：使用 `MaterialInstanceConstantFactoryNew` 创建母材质实例并绑定 OBJ/MTL 纹理，
+  `InitialParent` 取自 `FbxImportOptions.BaseMaterial`，因此换母材质只需改 `base_material_name`。
+- `EditorAssetSubsystem.cpp`：`DuplicateAsset` 自带 `GIsRunningUnattendedScript` 守卫，commandlet 下复制资产不会弹框。
+- `LevelEditorSubsystem.cpp`：`NewLevel` = `GEditor->NewMap()` + `SaveMap`，不依赖 Slate，可在 commandlet 中使用。
+- `EditorActorSubsystem.cpp`：`SpawnActorFromObject` 传 `UStaticMesh` 会经 `UActorFactoryStaticMesh` 生成 `AStaticMeshActor`。
+- `FileHelpers.cpp`：`FEditorFileUtils::SaveLevel` 见 `GIsRunningUnattendedScript` 直接失败，
+  新关卡只能用 `UEditorLoadingAndSavingUtils::SaveMap` 保存。
 - `PythonScriptCommandlet.cpp`：解析 `-Script=` 并执行 Python 文件。

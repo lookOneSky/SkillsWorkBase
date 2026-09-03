@@ -35,6 +35,11 @@ _CLEANUP_DEFAULTS = {
     "interval": 1,
 }
 
+_BATCH_MATERIAL_DEFAULTS = {
+    "enabled": True,
+    "destination_root": "/Game/DasMaterial",
+}
+
 
 def _load_json(config_path):
     try:
@@ -343,6 +348,56 @@ def _load_cleanup_config(config):
     return unload_after_import, interval
 
 
+def _load_batch_material_config(config):
+    """读取 batch_parent_material 段：是否为本批次复制一份独立母材质、复制到哪个目录。"""
+    batch_material = config.get("batch_parent_material", {})
+    if not isinstance(batch_material, dict):
+        raise ObjImportError("batch_parent_material 必须是 JSON 对象")
+
+    unknown_fields = set(batch_material) - set(_BATCH_MATERIAL_DEFAULTS)
+    if unknown_fields:
+        raise ObjImportError(
+            "不支持的 batch_parent_material 字段：{}".format(", ".join(sorted(unknown_fields)))
+        )
+
+    enabled = _validate_boolean_config(
+        batch_material, "enabled", _BATCH_MATERIAL_DEFAULTS["enabled"]
+    )
+    destination_root = batch_material.get(
+        "destination_root", _BATCH_MATERIAL_DEFAULTS["destination_root"]
+    )
+    return enabled, destination_root
+
+
+def _duplicate_parent_material(parent_path, destination_root, batch_timestamp):
+    """把母材质复制成本批次专用的一份，返回副本的对象路径。
+
+    导入器按 FbxImportOptions.BaseMaterial 建材质实例（FbxMaterialImport.cpp:686），
+    换掉这个路径就等于给本批次一套独立的材质参数，调参不影响历史批次。
+    """
+    source_package = parent_path.rsplit(".", 1)[0]
+    target_name = "{}_{}".format(source_package.rsplit("/", 1)[-1], batch_timestamp)
+    target_package = "{}/{}".format(destination_root, target_name)
+    if unreal.EditorAssetLibrary.does_asset_exist(target_package):
+        raise ObjImportError("本批次母材质已存在：{}".format(target_package))
+
+    duplicated = unreal.EditorAssetLibrary.duplicate_asset(source_package, target_package)
+    if not duplicated:
+        raise ObjImportError("母材质复制失败：{} -> {}".format(source_package, target_package))
+    if not unreal.EditorAssetLibrary.save_loaded_asset(duplicated, only_if_is_dirty=False):
+        raise ObjImportError("本批次母材质保存失败：{}".format(target_package))
+
+    unreal.log(
+        "OBJ_IMPORT_BATCH_MATERIAL="
+        + json.dumps(
+            {"source": parent_path, "batch_parent_material": duplicated.get_path_name()},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+    return duplicated.get_path_name()
+
+
 def _collect_packages(imported_objects):
     packages = []
     seen_names = set()
@@ -405,7 +460,7 @@ def _wait_for_static_mesh_derived_data(static_meshes):
     return derived_data
 
 
-def _run_import(source_file, config, destination_path, collect_packages):
+def _run_import(source_file, config, destination_path, parent_path, collect_packages):
     source_stem = _sanitize_asset_name(source_file.stem)
     asset_prefix = config.get("asset_name_prefix", "")
     if not isinstance(asset_prefix, str):
@@ -421,7 +476,6 @@ def _run_import(source_file, config, destination_path, collect_packages):
     build_static_mesh_ddc = _validate_boolean_config(
         config, "build_static_mesh_ddc", True
     )
-    parent_path = _normalize_object_path(config.get("parent_material"))
     import_ui, texture_import_config = _create_import_options(config, parent_path)
     parent_material = _load_parent_material(
         parent_path, texture_import_config, validate_parameters
@@ -542,11 +596,19 @@ def main():
         destination_path = _normalize_game_directory(
             config.get("destination_root"), batch_timestamp
         )
+        parent_path = _normalize_object_path(config.get("parent_material"))
+        duplicate_parent, material_root = _load_batch_material_config(config)
+        if duplicate_parent:
+            parent_path = _duplicate_parent_material(
+                parent_path,
+                _normalize_game_directory(material_root, batch_timestamp),
+                batch_timestamp,
+            )
         pending_packages = []
         for index, source_file in enumerate(source_files, start=1):
             pending_packages.extend(
                 _run_import(
-                    source_file, config, destination_path, unload_after_import
+                    source_file, config, destination_path, parent_path, unload_after_import
                 )
             )
             if unload_after_import and index % cleanup_interval == 0:
@@ -560,6 +622,7 @@ def main():
             + json.dumps(
                 {
                     "destination_path": destination_path,
+                    "parent_material": parent_path,
                     "source_count": len(source_files),
                     "timestamp": batch_timestamp,
                 },

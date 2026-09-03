@@ -17,6 +17,10 @@
   "destination_root": "/Game/ObjImport/{timestamp}",
   "asset_name_prefix": "SM_",
   "parent_material": "/Game/DasMaterial/MI_Model.MI_Model",
+  "batch_parent_material": {
+    "enabled": true,
+    "destination_root": "/Game/DasMaterial"
+  },
   "validate_parent_material_parameters": true,
   "require_parent_material_instances": true,
   "build_static_mesh_ddc": true,
