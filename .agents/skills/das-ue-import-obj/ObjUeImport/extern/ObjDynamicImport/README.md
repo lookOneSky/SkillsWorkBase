@@ -17,7 +17,8 @@ UE Python 对象。
    `YYYYMMDD_HHMMSS`，对应项目物理目录 `Content/ObjImport/YYYYMMDD_HHMMSS`。
 3. `parent_material` 默认是复制后的 `/Game/DasMaterial/MI_Model.MI_Model`。
    `batch_parent_material.enabled` 默认 `true`，会在导入开始前把它复制成
-   `<batch_parent_material.destination_root>/MI_Model_<时间戳>`（缺省 `/Game/DasMaterial`），
+   `<batch_parent_material.destination_root>/MI_Model_<时间戳>`（缺省 `/Game/ObjImport`，
+   与批次目录、批次关卡同级同后缀，删批次时在一个目录里就能删干净），
    本批次的材质实例全部挂到这份副本上，调参不影响历史批次。改成 `false` 则所有批次共用同一个母材质。
 4. `texture_import_data` 中非空的参数名必须存在于母材质。`base_emmisive_texture_name` 的 `emmisive`
    拼写来自 UE 5.3 属性名，请勿改为 `emissive`。
@@ -67,7 +68,7 @@ import_obj.bat "D:\data\model.obj" "D:\config\import_obj.json"
 - 目录内直接包含本批次全部瓦块资产，不再为每个瓦块创建子目录
 - 静态模型前缀：`SM_`
 - 默认材质目录：工具内 `DasMaterial` 覆盖复制到项目 `Content/DasMaterial`
-- 材质：以本批次副本 `/Game/DasMaterial/MI_Model_YYYYMMDD_HHMMSS` 为父级生成材质实例
+- 材质：以本批次副本 `/Game/ObjImport/MI_Model_YYYYMMDD_HHMMSS` 为父级生成材质实例
 
 首次导入后若要覆盖同名资产，将 `import_task.replace_existing` 和 `replace_existing_settings` 改为 `true`。
 

@@ -75,7 +75,9 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
 
 ## 批次独立的母材质
 
-导入开始前会把 `parent_material` 复制成 `/Game/DasMaterial/MI_Model_<YYYYMMDD_HHMMSS>`，本批次全部瓦块的材质实例都挂到这份副本上。之后调这份副本的参数只影响本批次，不会波及历史导入的数据。副本的 Parent 仍是原来的 `M_Model`。
+导入开始前会把 `parent_material` 复制成 `/Game/ObjImport/MI_Model_<YYYYMMDD_HHMMSS>`，本批次全部瓦块的材质实例都挂到这份副本上。之后调这份副本的参数只影响本批次，不会波及历史导入的数据。副本的 Parent 仍是原来的 `M_Model`。
+
+副本与批次目录 `/Game/ObjImport/<YYYYMMDD_HHMMSS>`、批次关卡 `/Game/ObjImport/mapObjImport_<YYYYMMDD_HHMMSS>` 同级同后缀，删批次时在 `Content\ObjImport` 一个目录里按时间戳就能删干净，不会碰到工具自带的 `Content\DasMaterial` 模板资产。
 
 不需要这个行为时，把 `import_obj.json` 的 `batch_parent_material.enabled` 改成 `false`，所有批次会重新共用同一个 `parent_material`。
 
@@ -103,7 +105,7 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
 `import_obj.json`（其余字段的含义见 `extern\ObjDynamicImport\README.md`）：
 
 - `destination_root`、`asset_name_prefix`、`parent_material`、`build_static_mesh_ddc`、`import_task`、`obj_import_ui`、`static_mesh_import_data`、`texture_import_data` 等由 `import_obj.py` 使用；`build_static_mesh_ddc` 默认为 `true`；
-- `batch_parent_material.enabled`（缺省 `true`）决定是否为本批次复制一份独立的母材质，`batch_parent_material.destination_root`（缺省 `/Game/DasMaterial`）是副本的存放目录。整段 `batch_parent_material` 可以省略；
+- `batch_parent_material.enabled`（缺省 `true`）决定是否为本批次复制一份独立的母材质，`batch_parent_material.destination_root`（缺省 `/Game/ObjImport`，支持 `{timestamp}` / `{date}`）是副本的存放目录。整段 `batch_parent_material` 可以省略；
 - `enabled_plugins` 拼成 `-EnablePlugins=`，`commandlet_arguments` 原样追加到命令行。程序会自动补齐缺失的 `-unattended`、`-nosplash`、`-stdout`、`-FullStdOutLogOutput`、`-UTF8Output`、`-AllowCommandletRendering`——少了前几个会看不到日志或卡在无人应答的弹窗上，少了 `-UTF8Output` 则脚本里的中文会被逐字输出成 `?`；少了 `-AllowCommandletRendering` 则 `FApp::CanEverRender()` 为 false，`UTexture::CachePlatformData` 直接跳过，纹理不会写入 DDC，编辑器下次打开会把所有纹理重建一遍（`import_obj.py` 启动时会检查这个参数，缺失直接报错）；
 - `cleanup.unload_after_import`（缺省 `true`）每导入完一批就卸载这批资产并回收内存，`cleanup.interval`（缺省 `1`）是攒多少个 OBJ 卸载一次。整段 `cleanup` 可以省略；`import_task.save=false` 时不会卸载，避免丢掉没保存的改动；
 - `project_file` 与 `destination_root` 每次运行都会被临时配置覆盖，改这两项对本工具无效——用位置参数和 `--destination`。
@@ -153,6 +155,6 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
 - 程序是 WIN32 子系统，未重定向时会附加到调用方的控制台；重定向到文件同样有效。
 - PowerShell 不会等待 WIN32 子系统程序退出，`&` 直接调用会立刻返回提示符。需要等待时重定向输出、接管道，或用 `Start-Process -Wait`。
 - 首次导入后若要覆盖同名资产，把 `import_obj.json` 的 `import_task.replace_existing` 与 `replace_existing_settings` 改为 `true`。
-- 每批次的母材质副本会一直累积在 `<项目>\Content\DasMaterial`。程序每次运行只覆盖工具自带的那几个同名文件，不会清理历史副本；副本被批次资产引用，删之前先确认对应批次已经不需要了。
+- 每批次的母材质副本会一直累积在 `<项目>\Content\ObjImport`，程序不会清理历史副本。副本被批次资产引用，删之前先确认对应批次已经不需要了；确认后按时间戳后缀连同批次目录 `<时间戳>\` 和批次关卡 `mapObjImport_<时间戳>.umap` 一起删即可。`Content\DasMaterial` 只放工具自带的模板资产，每次运行会被覆盖复制，不要往里面加东西。
 - 建关卡阶段会一次性加载整批 StaticMesh（连带材质实例与纹理头），这是全流程的内存峰值。瓦块特别多时用 `--skip-level` 跳过，之后单独处理。
 - 「取消」会先 `terminate` 再 `kill` 编辑器进程；此时已经写入项目的资产不会回滚。

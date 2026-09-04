@@ -37,7 +37,9 @@ _CLEANUP_DEFAULTS = {
 
 _BATCH_MATERIAL_DEFAULTS = {
     "enabled": True,
-    "destination_root": "/Game/DasMaterial",
+    # 与 build_level.json 的 level_root 同级：批次目录、批次关卡、批次母材质
+    # 都带同一个时间戳后缀，删批次时在一个目录里就能删干净。
+    "destination_root": "/Game/ObjImport",
 }
 
 
