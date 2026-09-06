@@ -1,14 +1,14 @@
 ---
 name: das-ue-autoconfig
-description: 输入涉及 Unreal Engine（UE/虚幻引擎）项目时使用。
-user-invocable: false
+description: 用户输入 `/das-ue-autoconfig` 时使用。
+disable-model-invocation: true
 ---
 
 # Unreal 自动配置
 
 为 Unreal Engine 项目开启 Python 远程执行：写入 `Config/DefaultEngine.ini` 的 `bRemoteExecution=True`，并在 `.uproject` 启用 `PythonScriptPlugin`。
 
-UE 相关任务开始前先运行一次，同一会话内成功过就不再重复运行：
+仅在用户输入 `/das-ue-autoconfig`，或其他 Skill 明确要求配置 Python 远程执行时执行；不要在 UE 相关任务开始前自动运行，同一会话内成功过也不再重复运行。其他 Skill 需要时直接运行本 Skill 同级的脚本：
 
 ```powershell
 python "<本 Skill 目录>\configure_ue_python.py" "<项目.uproject 或项目目录>"
