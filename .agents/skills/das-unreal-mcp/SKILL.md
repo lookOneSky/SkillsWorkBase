@@ -1,12 +1,12 @@
 ---
 name: das-unreal-mcp
-description: 自动配置当前 Unreal Engine 项目的 MCP；用户要求为当前 Unreal 项目配置、安装或修复 MCP 时使用。
+description: 用户要求为当前 Unreal 项目配置、安装或修复 MCP 时使用。
 user-invocable: false
 ---
 
 # Unreal MCP
 
-运行：
+自动配置当前 Unreal Engine 项目的 MCP。运行：
 
 ```powershell
 python "<本 Skill 目录>\configure_unreal_mcp.py"

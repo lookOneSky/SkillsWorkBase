@@ -1,10 +1,12 @@
 ---
 name: das-unreal-import-fbx
-description: 使用脚本把静态模型 FBX 导入 Unreal 项目，用默认父材质创建材质实例并绑定 BaseColor 纹理参数；用户要求导入 FBX 或提供 FBX 路径时使用。
+description: 用户要求把 FBX 导入 Unreal Engine 项目，或提供 FBX 路径时使用。
 user-invocable: false
 ---
 
 # Unreal FBX 导入
+
+把静态模型 FBX 导入 Unreal 项目，用默认父材质创建材质实例并绑定 BaseColor 纹理参数。
 
 1. 获取 FBX 文件路径；未提供时再询问。
 2. 在 Unreal 项目目录运行：

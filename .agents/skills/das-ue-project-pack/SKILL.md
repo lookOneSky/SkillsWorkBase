@@ -1,10 +1,12 @@
 ---
 name: das-ue-project-pack
-description: 在 Windows 上从 Skill 自带配置和 Unreal Engine 目录按工程名自动匹配 .ulp2，并用 RunUAT BuildCookRun 打包普通版本或 DLC；用户要求打包 UE 项目文件夹或打包 DLC 时使用。
+description: 用户要求打包 UE 工程或打包 DLC 时使用。
 user-invocable: false
 ---
 
 # Unreal 项目打包
+
+在 Windows 上从 Skill 自带配置和 Unreal Engine 目录按工程名自动匹配 `.ulp2`，并用 `RunUAT BuildCookRun` 打包普通版本或 DLC。
 
 1. 获取工程文件夹或 `.uproject`；必须提醒用户指定输出工作目录，未提供时先询问，得到目录前不运行脚本；配置仅支持 `debug` 和 `shipping`，未指定时固定使用 `shipping`。
 2. 使用 Python 3 运行同级脚本：

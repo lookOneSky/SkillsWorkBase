@@ -1,10 +1,12 @@
 ---
 name: das-ue-import-obj
-description: 在 Windows 上用 Skill 自带的 obj_ue_import.exe 把 OBJ 目录批量导入 Unreal 项目，批量修改导入纹理属性并生成汇总关卡；用户要求导入 OBJ、批量导入倾斜模型或提供 OBJ 目录与 .uproject 时使用。
+description: 用户要求把 OBJ 或倾斜模型导入 Unreal Engine 项目，或提供 OBJ 目录与 `.uproject` 时使用。
 user-invocable: false
 ---
 
 # Unreal OBJ 导入
+
+在 Windows 上用 Skill 自带的 `obj_ue_import.exe` 把 OBJ 目录批量导入 Unreal 项目，批量修改导入纹理属性并生成汇总关卡。
 
 1. 获取 OBJ 目录（也可以是单个 `.obj`）和目标 `.uproject`，缺少任一项先询问，不要猜测路径。
 2. 运行前确认目标项目没有被 Unreal 编辑器打开，否则导入必定失败。

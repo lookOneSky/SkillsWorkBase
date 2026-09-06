@@ -1,8 +1,10 @@
 ---
 name: das-script
-description: 规范脚本的实现与入口。创建或修改 Windows 自动化脚本、批处理入口、命令行工具或 Skill 内置脚本时使用。
+description: 创建或修改 Windows 自动化脚本、批处理入口、命令行工具或 Skill 内置脚本时使用。
 user-invocable: false
 ---
+
+# 脚本规范
 
 - 脚本优先使用 Python 3；若仅需很简短的 `.bat` 即可完成，则只实现 `.bat`，不创建 Python 脚本。
 - 普通 Windows 自动化脚本使用 Python 时，通过 `.bat` 提供入口。

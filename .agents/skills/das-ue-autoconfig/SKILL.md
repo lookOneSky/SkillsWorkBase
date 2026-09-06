@@ -1,10 +1,12 @@
 ---
 name: das-ue-autoconfig
-description: 自动为 Unreal Engine 项目开启 Python 远程执行，写入 Config/DefaultEngine.ini 的 bRemoteExecution=True 并在 .uproject 启用 PythonScriptPlugin；提到 Unreal（UE/虚幻引擎）相关操作时调用。
+description: 输入涉及 Unreal Engine（UE/虚幻引擎）项目时使用。
 user-invocable: false
 ---
 
 # Unreal 自动配置
+
+为 Unreal Engine 项目开启 Python 远程执行：写入 `Config/DefaultEngine.ini` 的 `bRemoteExecution=True`，并在 `.uproject` 启用 `PythonScriptPlugin`。
 
 UE 相关任务开始前先运行一次，同一会话内成功过就不再重复运行：
 
