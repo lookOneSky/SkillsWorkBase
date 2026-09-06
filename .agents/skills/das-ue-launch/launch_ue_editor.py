@@ -73,6 +73,67 @@ def load_json(path: Path) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+# 读取模块清单；损坏或结构不完整时按不可用处理
+def read_modules_manifest(path: Path) -> dict:
+    data = load_json(path)
+    modules = data.get("Modules")
+    if (
+        not isinstance(data.get("BuildId"), str)
+        or not data["BuildId"]
+        or not isinstance(modules, dict)
+        or not all(isinstance(dll, str) and dll for dll in modules.values())
+    ):
+        return {}
+    return data
+
+
+# 标准编辑器名对应 Development，带 -Win64- 后缀的名称给出实际配置
+def editor_configuration(editor: Path) -> str:
+    _, separator, configuration = editor.stem.partition("-Win64-")
+    return configuration if separator else "Development"
+
+
+# 校验已有构建目录；没有项目 Binaries 的模板/蓝图工程无需项目清单
+def validate_editor_build(engine_root: Path, uproject: Path, editor: Path) -> list[str]:
+    binaries = uproject.parent / "Binaries/Win64"
+    directories = [binaries] if binaries.is_dir() else []
+    plugins = uproject.parent / "Plugins"
+    if plugins.is_dir():
+        directories.extend(
+            path for path in sorted(plugins.rglob("Binaries/Win64"))
+            if path.is_dir() and any(item.is_file() for item in path.glob("*.modules"))
+        )
+    if not directories:
+        return []
+
+    # DebugGame 复用引擎 Development 模块，不能按编辑器配置寻找引擎清单。
+    engine_manifest = engine_root / "Engine/Binaries/Win64/UnrealEditor.modules"
+    if not engine_manifest.is_file():
+        engine_manifest = engine_manifest.with_name("UE4Editor.modules")
+    engine_build_id = read_modules_manifest(engine_manifest).get("BuildId")
+    problems = []
+    if not engine_build_id:
+        problems.append("引擎: 无法读取 {} 的 BuildId".format(engine_manifest.name))
+
+    manifest_name = editor.stem + ".modules"
+    for directory in directories:
+        label = uproject.stem if directory == binaries else directory.parent.parent.name
+        manifest_path = directory / manifest_name
+        if not manifest_path.is_file():
+            problems.append("{}: 缺少 {}".format(label, manifest_name))
+            continue
+        manifest = read_modules_manifest(manifest_path)
+        if not manifest:
+            problems.append("{}: 清单无效 {}".format(label, manifest_name))
+            continue
+        if engine_build_id and manifest["BuildId"] != engine_build_id:
+            problems.append("{}: {} 的 BuildId 与引擎不一致".format(label, manifest_name))
+        for dll in manifest["Modules"].values():
+            if not (directory / dll).is_file():
+                problems.append("{}: 缺少 {}".format(label, dll))
+    return problems
+
+
 # 读取 UE 的 ini 配置，返回 {段: {键: 值}}，同名键取最后一次赋值
 def read_ini(path: Path) -> dict[str, dict[str, str]]:
     if not path.is_file():
@@ -187,8 +248,10 @@ def resolve_engine_root(uproject: Path, project_data: dict, override: str | None
     )
 
 
-# 优先用工程 Binaries 中的 Editor target，退回引擎默认编辑器（对齐 TryGetEditorFileName）
-def find_editor_binary(engine_root: Path, uproject: Path) -> Path:
+# 从所有 Editor target 选择模块齐全的配置，优先 Development，其余按 target 新旧
+def select_editor(
+    engine_root: Path, uproject: Path, forced_config: str | None = None
+) -> tuple[Path, str, list[str]]:
     binaries = uproject.parent / "Binaries/Win64"
     targets = []
     if binaries.is_dir():
@@ -199,9 +262,10 @@ def find_editor_binary(engine_root: Path, uproject: Path) -> Path:
                 continue
     targets.sort(reverse=True)
 
+    candidates = []
     for _, target in targets:
         data = load_json(target)
-        if data.get("TargetType") != "Editor" or data.get("Configuration") != "Development":
+        if data.get("TargetType") != "Editor":
             continue
         launch = str(data.get("Launch", "")).strip()
         if not launch:
@@ -210,14 +274,33 @@ def find_editor_binary(engine_root: Path, uproject: Path) -> Path:
         launch = launch.replace("$(ProjectDir)", str(uproject.parent))
         candidate = Path(launch)
         if candidate.is_file():
-            return candidate.resolve()
+            candidates.append(candidate.resolve())
 
     for name in DEFAULT_EDITOR_NAMES:
         candidate = engine_root / "Engine/Binaries/Win64" / name
         if candidate.is_file():
-            return candidate.resolve()
+            candidates.append(candidate.resolve())
 
-    raise LaunchError("找不到编辑器可执行文件：{}".format(engine_root / "Engine/Binaries/Win64"))
+    candidates = list(dict.fromkeys(candidates))
+    if forced_config is not None:
+        candidates = [
+            item for item in candidates
+            if editor_configuration(item).casefold() == forced_config.casefold()
+        ]
+        if not candidates:
+            raise LaunchError("找不到 {} 配置的编辑器可执行文件".format(forced_config))
+    if not candidates:
+        raise LaunchError("找不到编辑器可执行文件：{}".format(engine_root / "Engine/Binaries/Win64"))
+
+    results = [
+        (item, editor_configuration(item), validate_editor_build(engine_root, uproject, item))
+        for item in candidates
+    ]
+    ready = [item for item in results if not item[2]]
+    for item in ready:
+        if item[1] == "Development":
+            return item
+    return ready[0] if ready else results[0]
 
 
 # 取所有编辑器进程的 PID 与命令行
@@ -371,6 +454,8 @@ def build_result(
     editor: Path | None,
     process_ids: list[str],
     ready: bool | None,
+    configuration: str,
+    modules_problems: list[str],
 ) -> dict:
     config = read_ini(uproject.parent / "Config/DefaultEngine.ini")
     maps = config.get(MAPS_SETTINGS_SECTION, {})
@@ -383,6 +468,9 @@ def build_result(
         "project_dir": str(uproject.parent),
         "engine_root": str(engine_root) if engine_root else "",
         "editor": str(editor) if editor else "",
+        "configuration": configuration,
+        "modules_ready": status == "running" or not modules_problems,
+        "modules_problems": [] if status == "running" else modules_problems[:5],
         "process_ids": [int(item) for item in process_ids],
         "python_remote_execution": python_remote_execution(config, load_json(uproject)),
         "editor_startup_map": maps.get("EditorStartupMap", ""),
@@ -434,6 +522,7 @@ def parse_args(argv=None):
         help="包含 .uproject 的目录，也可直接传 .uproject（默认当前目录）",
     )
     parser.add_argument("--engine-root", help="引擎根目录，用于 EngineAssociation 定位失败时")
+    parser.add_argument("--config", help="强制编辑器构建配置，如 DebugGame")
     parser.add_argument(
         "--wait",
         type=float,
@@ -456,27 +545,38 @@ def main(argv=None):
         print("[项目] {}".format(uproject))
 
         running = running_editor_processes(uproject)
-        engine_root = None
-        editor = None
-        try:
-            engine_root = resolve_engine_root(uproject, load_json(uproject), args.engine_root)
-            editor = find_editor_binary(engine_root, uproject)
-        except LaunchError:
-            if not running:
-                raise
-            engine_root, editor = engine_from_process(running[0][1])
-
         if running:
+            # 实例信息必须来自实际进程，避免磁盘上另一个配置覆盖当前运行配置。
+            engine_root, editor = engine_from_process(running[0][1])
+            if engine_root is None or editor is None:
+                try:
+                    engine_root = resolve_engine_root(uproject, load_json(uproject), args.engine_root)
+                    if editor is None:
+                        editor, _, _ = select_editor(engine_root, uproject)
+                except LaunchError:
+                    pass
+            configuration = editor_configuration(editor) if editor else ""
             for process_id, command_line in running:
                 print("[运行中] PID {} {}".format(process_id, command_line.strip()))
+            if editor:
+                print("[编辑器] {}".format(editor))
+                print("[配置] {}".format(configuration))
             result = build_result(
-                "running", uproject, engine_root, editor, [item for item, _ in running], None
+                "running", uproject, engine_root, editor, [item for item, _ in running], None,
+                configuration, [],
             )
             report_result(result, args.json_path)
             return 0
 
+        engine_root = resolve_engine_root(uproject, load_json(uproject), args.engine_root)
+        editor, configuration, modules_problems = select_editor(engine_root, uproject, args.config)
         print("[引擎] {}".format(engine_root))
         print("[编辑器] {}".format(editor))
+        print("[配置] {}".format(configuration))
+        if modules_problems:
+            print("[提示] {} 模块不完整：{}，编辑器可能提示重新编译".format(
+                configuration, "；".join(modules_problems[:3])
+            ))
         process = launch_editor(editor, uproject, args.extra)
         print("[启动] PID {}".format(process.pid))
 
@@ -489,7 +589,8 @@ def main(argv=None):
                 print("[超时] {:.0f} 秒内未出现编辑器主窗口，进程仍在启动".format(args.wait))
 
         result = build_result(
-            "launched", uproject, engine_root, editor, [str(process.pid)], ready
+            "launched", uproject, engine_root, editor, [str(process.pid)], ready,
+            configuration, modules_problems,
         )
         report_result(result, args.json_path)
         return 0
