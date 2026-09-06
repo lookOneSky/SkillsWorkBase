@@ -16,9 +16,9 @@ class BuildLevelError(RuntimeError):
 _ORIGIN_ALIGNMENTS = ("bottom_center", "center", "xy_center")
 
 _DEFAULTS = {
-    "level_root": "/Game/ObjImport",
     "level_name_prefix": "mapObjImport_",
     "origin_alignment": "bottom_center",
+    "outliner_folder": "DasImport",
 }
 
 
@@ -44,6 +44,14 @@ def _require_game_directory(value, field_name):
     if path != "/Game" and not path.startswith("/Game/"):
         raise BuildLevelError("{} 必须位于 Content（/Game）下：{}".format(field_name, path))
     return path
+
+
+def _require_outliner_folder(value):
+    """规范化数据大纲目录；返回空串表示不分组，Actor 留在根节点。"""
+    if not isinstance(value, str):
+        raise BuildLevelError("outliner_folder 必须是字符串")
+    segments = [segment.strip() for segment in value.replace("\\", "/").split("/")]
+    return "/".join(segment for segment in segments if segment)
 
 
 def _collect_static_mesh_paths(destination_path):
@@ -128,7 +136,7 @@ def _wait_for_render_data(static_meshes):
             )
 
 
-def _spawn_static_meshes(static_meshes, offset):
+def _spawn_static_meshes(static_meshes, offset, outliner_folder):
     """按同一个偏移量把全部 StaticMesh 放进当前关卡。
 
     不能用 EditorActorSubsystem.spawn_actor_from_object：它会走编辑器拖放的
@@ -153,6 +161,10 @@ def _spawn_static_meshes(static_meshes, offset):
                 "绑定静态模型失败：{}".format(static_mesh.get_path_name())
             )
         actor.set_actor_label(static_mesh.get_name())
+        # SetFolderPath 写的是 FolderPath 这个 WITH_EDITORONLY_DATA 的 UPROPERTY，
+        # 随关卡包一起存盘，数据大纲里就会出现这一层目录。
+        if outliner_folder:
+            actor.set_folder_path(outliner_folder)
 
 
 def _discard_unfinished_level(level_path):
@@ -186,7 +198,8 @@ def main():
             config.get("destination_path"), "destination_path"
         )
         level_root = _require_game_directory(
-            config.get("level_root", _DEFAULTS["level_root"]), "level_root"
+            config.get("level_root", "{}/DasDataInfo".format(destination_path)),
+            "level_root",
         )
         name_prefix = config.get("level_name_prefix", _DEFAULTS["level_name_prefix"])
         if not isinstance(name_prefix, str):
@@ -198,6 +211,9 @@ def main():
                     "、".join(_ORIGIN_ALIGNMENTS), origin_alignment
                 )
             )
+        outliner_folder = _require_outliner_folder(
+            config.get("outliner_folder", _DEFAULTS["outliner_folder"])
+        )
         batch_timestamp = config.get("batch_timestamp", "")
         if not isinstance(batch_timestamp, str) or not batch_timestamp:
             raise BuildLevelError("batch_timestamp 不能为空")
@@ -222,7 +238,7 @@ def main():
         _wait_for_render_data(static_meshes)
         minimum, maximum = _merge_bounding_boxes(static_meshes)
         offset = _compute_origin_offset(minimum, maximum, origin_alignment)
-        _spawn_static_meshes(static_meshes, offset)
+        _spawn_static_meshes(static_meshes, offset, outliner_folder)
 
         # 新关卡还没有 SaveAs 之外的文件名，SaveCurrentLevel 在 unattended 下会直接失败
         # （FileHelpers.cpp:3860），只能走 SaveMap。
@@ -241,6 +257,7 @@ def main():
                     "destination_path": destination_path,
                     "static_mesh_count": len(static_meshes),
                     "origin_alignment": origin_alignment,
+                    "outliner_folder": outliner_folder,
                     "offset": [offset.x, offset.y, offset.z],
                     "bounds_min": [minimum.x, minimum.y, minimum.z],
                     "bounds_max": [maximum.x, maximum.y, maximum.z],

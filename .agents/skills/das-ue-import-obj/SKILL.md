@@ -19,4 +19,4 @@ user-invocable: false
 
    不要加 `2>&1`，不要用 `Start-Process` 丢掉日志。日志路径放在临时目录。
 5. 判读结果：退出码 `0` 成功、`1` 执行失败、`2` 参数非法；日志里 `OBJ_IMPORT_BATCH_RESULT=` 是整批导入结果，`OBJ_IMPORT_ERROR=` 是导入报错，`[TexturePropertyBatch]` 是改纹理阶段，`OBJ_IMPORT_LEVEL=` 是汇总关卡结果，`OBJ_LEVEL_ERROR=` 是建关卡报错。
-6. 报告本次批次目录（默认 `/Game/ObjImport/<YYYYMMDD_HHMMSS>`）、导入数量、汇总关卡（默认 `/Game/ObjImport/mapObjImport_<YYYYMMDD_HHMMSS>`）和日志路径。失败时保留原始错误，不要改工程资产或配置重试。
+6. 报告本次批次目录（默认 `/Game/ObjImport/<YYYYMMDD_HHMMSS>`）、导入数量、汇总关卡（默认 `/Game/ObjImport/<YYYYMMDD_HHMMSS>/DasDataInfo/mapObjImport_<YYYYMMDD_HHMMSS>`）和日志路径。失败时保留原始错误，不要改工程资产或配置重试。
