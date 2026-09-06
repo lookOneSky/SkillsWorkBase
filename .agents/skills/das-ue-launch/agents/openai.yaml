@@ -1,0 +1,4 @@
+interface:
+  display_name: "Unreal 启动编辑器"
+  short_description: "未运行时启动 UE 项目编辑器并返回实例信息"
+  default_prompt: "使用 $das-ue-launch 启动当前 Unreal 项目的编辑器。"
