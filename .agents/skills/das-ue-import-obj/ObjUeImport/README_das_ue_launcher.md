@@ -92,6 +92,8 @@ UE_LAUNCH_RESULT={"process_id":1234,"project":"D:/Project/MyProject.uproject","r
 
 缓存写入失败不会关闭已经运行的 Unreal Editor。`restart_required` 为 `true` 时退出码仍是 `0`——实例本身是就绪的，只是远程执行还没生效，由调用方决定怎么处理。
 
+命令行打印完 `UE_LAUNCH_RESULT=` 就立刻退出。启动的编辑器不继承本程序的标准句柄，所以 `| Tee-Object` 会随本程序退出而结束，不会挂到编辑器被关掉。
+
 ## 发布
 
 双击仓库根目录的 `publish_obj_tools.bat`，会把 `das_ue_launcher.exe` 与 OBJ 导入、纹理检查、经纬度换算工具一起发布到 `dist/ObjTools_YYYYMMDD/` 并生成 ZIP 包，本文档随包发布为 `README_das_ue_launcher.md`。

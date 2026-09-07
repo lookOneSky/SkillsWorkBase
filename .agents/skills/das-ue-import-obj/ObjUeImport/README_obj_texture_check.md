@@ -9,6 +9,7 @@
 ```text
 纹理密度 = 引用到的贴图总像素 ÷ 三角网总面积      单位 px²/cm²
 texel 密度 = √纹理密度                          单位 px/cm
+网格密度 = 三角形数量 ÷ 三角网总面积          单位 tri/m²
 ```
 
 - **面积**：解析 OBJ 的 `v` 与 `f`，多边形按扇形三角化，累加每个三角形的面积。长度统一换算到厘米，OBJ 坐标本身代表什么单位由 `--obj-unit` 声明（默认 `cm`）。
@@ -115,7 +116,8 @@ obj_texture_check.exe --texture-check "D:\Obj" --level-step 2 --max-bucket 16
 
 | 字段 | 说明 |
 | --- | --- |
-| `objUnit` / `lengthUnit` / `densityUnit` | 输入坐标单位、报告长度单位（恒为 `cm`）、密度单位 |
+| `objUnit` / `lengthUnit` / `densityUnit` | 输入坐标单位、报告长度单位（恒为 `cm`）、纹理密度单位 |
+| `triangleDensityUnit` | 网格密度单位，恒为 `triangles/m^2` |
 | `targetDensity` / `targetTexelPerUnit` | 本次目标密度，`px²/cm²` 与 `px/cm` |
 | `levelStep` / `maxLevel` / `maxBucket` | 一档降多少倍像素、档位数量、最高桶名 |
 | `countAllMaps` / `copied` | 是否统计全部贴图通道、是否执行了拷贝 |
@@ -123,11 +125,11 @@ obj_texture_check.exe --texture-check "D:\Obj" --level-step 2 --max-bucket 16
 | `summary.overallDensity` / `overallTexelPerUnit` | 全部对象合计的密度 |
 | `summary.medianTexelPerUnit` | 各对象 texel 密度的中位数，界面上可一键设为目标 |
 | `summary.copiedBytes` / `warningCount` | 本次拷贝体积、告警条数 |
-| `objects[].area` / `triangleCount` / `texturePixels` | 该对象的面积（cm²）、三角形数、去重后的贴图像素 |
+| `objects[].area` / `triangleCount` / `triangleDensity` / `texturePixels` | 该对象的面积（cm²）、三角形数、网格密度（tri/m²）、去重后的贴图像素 |
 | `objects[].density` / `texelPerUnit` / `ratio` | 密度、texel 密度、相对目标的倍率 |
 | `objects[].level` / `rawLevel` / `textureScale` / `bucket` | 归档、未截断的原始档位、建议贴图缩放、桶名 |
 | `objects[].copiedTo` | 实际拷到的位置，未拷贝时为空 |
-| `objects[].objFiles[]` / `textures[]` / `warnings[]` | 逐个 OBJ 的明细、引用到的贴图尺寸、该对象的告警 |
+| `objects[].objFiles[]` / `textures[]` / `warnings[]` | 逐个 OBJ 的明细（含 `triangleDensity`）、引用到的贴图尺寸、该对象的告警 |
 
 数值保留 6 位有效数字。贴图缺失、材质未定义、无法识别的图片尺寸都记进 `warnings`，不计入像素，也不会中断本次运行；日志里只打印前 50 条，其余看 JSON。
 
@@ -151,7 +153,7 @@ obj_texture_check.exe --texture-check "D:\Obj" > texture.log
 
 不带参数启动即打开界面，七项参数与命令行一一对应（「划分档位」列出的是这次会生成的桶阶梯，换「档位步长」会跟着重排，上限尽量停在原来的像素倍数上），另有三个按钮：
 
-- **扫描获取密度**：只统计不拷贝，结果按对象列进表格（面积、三角形、纹理像素、密度、倍率、档位、体积），并给出整体密度与中位数。
+- **扫描获取密度**：只统计不拷贝，结果按对象列进表格（面积、三角形、网格密度、纹理像素、纹理密度、倍率、档位、体积），并给出整体密度与中位数。点击任意表头可按对应列切换升序、降序，默认按纹理密度降序。
 - **用中位数填入**：把扫描结果的密度中位数写进目标密度，作为分档基准。
 - **按目标分类拷贝**：按当前目标密度分档并拷贝；扫描条件（输入目录、单位、贴图通道）没变时直接复用上一轮的度量结果，不再重读 OBJ。
 

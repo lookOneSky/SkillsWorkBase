@@ -16,7 +16,6 @@ class BuildLevelError(RuntimeError):
 _ORIGIN_ALIGNMENTS = ("bottom_center", "center", "xy_center")
 
 _DEFAULTS = {
-    "level_root": "/Game/ObjImport",
     "level_name_prefix": "mapObjImport_",
     "origin_alignment": "bottom_center",
     "outliner_folder": "DasImport",
@@ -199,7 +198,8 @@ def main():
             config.get("destination_path"), "destination_path"
         )
         level_root = _require_game_directory(
-            config.get("level_root", _DEFAULTS["level_root"]), "level_root"
+            config.get("level_root", "{}/DasDataInfo".format(destination_path)),
+            "level_root",
         )
         name_prefix = config.get("level_name_prefix", _DEFAULTS["level_name_prefix"])
         if not isinstance(name_prefix, str):

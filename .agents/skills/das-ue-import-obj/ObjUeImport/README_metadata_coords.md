@@ -1,6 +1,6 @@
 # Metadata 经纬度工具
 
-独立的 Qt Widgets + C++17 + PROJ 9 程序，位于 `ObjDivideUtils/extern/MetadataCoords`。只读取 `metadata.xml`，在原坐标系下计算模型原点的经纬度，保留原始基准，不做跨坐标系的基准转换。不载入 OBJ 或纹理。无参数启动界面，带路径参数运行命令行。运行不需要 .NET 或 Python。
+独立的 Qt Widgets + C++17 + PROJ 9 程序，位于 `ObjDivideUtils/extern/MetadataCoords`。读取 `metadata.xml`，在原坐标系下计算模型原点的经纬度；还可指定 UE 参考原点经纬高，计算 Metadata 原点的 ESU 左手系偏移。保留原始基准，不做跨坐标系的基准转换。不载入 OBJ 或纹理。无参数启动界面，带路径参数运行命令行。运行不需要 .NET 或 Python。
 
 ## 使用
 
@@ -17,15 +17,42 @@
 # 指定输出路径
 .\metadata_coords.exe --input "E:\Data\download\obj" --json --output result.json
 
+# 指定 UE 参考原点，输出 Metadata 原点相对它的 X/Y/Z 偏移
+.\metadata_coords.exe "E:\Data\download\obj" --ue-origin "108.2,22.6,30" --json
+
 # 界面预加载文件
 .\metadata_coords.exe --gui "E:\Data\download\obj"
 ```
 
-界面支持粘贴路径、选择文件、拖入单个 XML 或直接包含 metadata.xml 的文件夹，以及复制经纬度和保存 TXT / JSON。
+界面支持粘贴路径、选择文件、拖入单个 XML 或直接包含 metadata.xml 的文件夹，以及填写 UE 参考经纬高、复制经纬度或 UE 偏移、保存 TXT / JSON。UE 参考经纬高不填写时，行为与旧版本一致，只计算 Metadata 原点经纬度。
 
 输出坐标系自动取自输入 SRS 对应的地理坐标系。例如 EPSG:4545 的投影坐标还原为 EPSG:4490（CGCS2000）经纬度，基准不变；输入已是地理坐标时保留其坐标系和本初子午线，仅统一角度单位。界面无需选择输出坐标系，命令行不再接受 `--target` 或 `--allow-ballpark`。
 
-默认 SRSOrigin 按东、北、Z 读取；地理坐标输入按经度、纬度、Z 读取。输入数值单位遵循 SRS（例如米、英尺、度或百分度），输出经纬度统一为度。针对北、东顺序的数据，使用 `--swap-xy`。不依据数值自动猜测或交换坐标轴。
+默认 SRSOrigin 按东、北、Z 读取；地理坐标输入按经度、纬度、Z 读取。前两项单位遵循水平 SRS（例如米、英尺、度或百分度），第三项原样保留，输出经纬度统一为度。针对北、东顺序的数据，使用 `--swap-xy`。不依据数值自动猜测或交换坐标轴。
+
+`--ue-origin <经度,纬度,高程>` 启用 UE 偏移计算。参考经纬度单位为度、高程单位为米，并按工具输出的 `target_crs` 解释；Metadata 的 SRSOrigin Z 直接视为同一椭球基准下的米制高程，不进行高程基准或单位转换。输出为 Metadata 原点减去 UE 参考原点，采用 UE ESU 左手系：X 向东、Y 向南、Z 向上，单位为厘米。计算先求两点的地心坐标差，再在 UE 参考原点处转换到局部切平面。
+
+启用 UE 偏移后的 JSON 会额外包含：
+
+```json
+{
+  "ue_origin": {
+    "longitude": 108.2,
+    "latitude": 22.6,
+    "height_metres": 30.0,
+    "crs": "EPSG:4490"
+  },
+  "ue_esu_offset": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0,
+    "unit": "centimetre",
+    "axes": "X=east,Y=south,Z=up",
+    "handedness": "left",
+    "meaning": "metadata_origin_minus_ue_origin"
+  }
+}
+```
 
 `--proj-data <目录>` 指定包含 proj.db 的目录，默认优先使用 EXE 旁的 `share/proj`。程序禁用 PROJ 网络访问。输入若附带向其他基准转换的绑定参数（例如 `+towgs84`、`+nadgrids`），只使用其中的原始坐标系，不应用这些跨基准参数，也不需要其校正格网。JSON 保留 `target_crs`、`target_name`、`ballpark` 等结果字段；成功结果的 `ballpark` 始终为 false。
 
@@ -35,7 +62,7 @@
 
 - SRS 支持 PROJ 可识别的投影坐标系和地理坐标系，可使用 EPSG 编码、CRS WKT，以及含 `+type=crs` 的 PROJ 定义；暂不支持地心坐标。
 - ENU 局部坐标格式暂不支持，明确报错；缺少定位参数的本地坐标系无法自动还原经纬度。
-- 输入为复合坐标系时，仅提取水平部分并在结果中说明。输出只包含经纬度，原始 Z 单独保留，不声称完成高程转换。
+- 输入为复合坐标系时，仅提取水平部分并在结果中说明。原始 Z 不做垂直基准转换；只有明确指定 UE 参考原点时，才按米制椭球高用于偏移计算。
 - 模型原点不一定是模型中心；需要模型内某点的位置时，应先把该点的局部坐标加到 SRSOrigin。
 - `accuracy_metres` 是 PROJ 操作声明的精度，未知时为 null；不包含原始数据误差。
 - 不输出高德 GCJ-02 或百度 BD-09 坐标。
@@ -55,7 +82,7 @@ ctest --test-dir build-release --output-on-failure
 cmake --install build-release --prefix dist/MetadataCoords
 ```
 
-测试运行时应能找到 Qt DLL 与 offscreen 平台插件，例如把 Qt 的 bin 目录加入 PATH。测试覆盖原始基准保留、绑定参数忽略、复合坐标系水平部分、角度单位、轴顺序、JSON、错误输入和界面状态。
+测试运行时应能找到 Qt DLL 与 offscreen 平台插件，例如把 Qt 的 bin 目录加入 PATH。测试覆盖原始基准保留、绑定参数忽略、复合坐标系水平部分、角度单位、轴顺序、ESU 左手系方向、高程与厘米换算、JSON、错误输入和界面状态。
 
 也可在主项目 CMakeLists.txt 中追加：
 
