@@ -1,4 +1,0 @@
-interface:
-  display_name: "Unreal 自动配置"
-  short_description: "开启 UE 项目的 Python 远程执行"
-  default_prompt: "使用 $das-ue-autoconfig 为当前 Unreal 项目开启 Python 远程执行。"
