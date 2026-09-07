@@ -37,10 +37,13 @@ _CLEANUP_DEFAULTS = {
 
 _BATCH_MATERIAL_DEFAULTS = {
     "enabled": True,
-    # 与 build_level.json 的 level_root 同级：批次目录、批次关卡、批次母材质
-    # 都带同一个时间戳后缀，删批次时在一个目录里就能删干净。
-    "destination_root": "/Game/ObjImport",
+    # 空串 = 放进批次目录下的 data_info_directory，删批次目录时一起删掉。
+    # 显式填绝对目录（支持 {timestamp} / {date}）则按老行为放到批次目录外。
+    "destination_root": "",
 }
+
+# 批次目录下汇总元数据、批次母材质与关卡的目录名，obj_ue_import.exe 读的是同一个键。
+_DATA_INFO_DIRECTORY_DEFAULT = "DasDataInfo"
 
 
 def _load_json(config_path):
@@ -368,7 +371,38 @@ def _load_batch_material_config(config):
     destination_root = batch_material.get(
         "destination_root", _BATCH_MATERIAL_DEFAULTS["destination_root"]
     )
-    return enabled, destination_root
+    if not isinstance(destination_root, str):
+        raise ObjImportError("batch_parent_material.destination_root 必须是字符串")
+    return enabled, destination_root.strip()
+
+
+def _data_info_path(config, destination_path):
+    """批次目录下汇总元数据、批次母材质与关卡的目录，与 obj_ue_import.exe 用同一个配置键。"""
+    name = config.get("data_info_directory", _DATA_INFO_DIRECTORY_DEFAULT)
+    if not isinstance(name, str) or not name.strip():
+        raise ObjImportError("data_info_directory 不能为空")
+    name = name.strip().replace("\\", "/").strip("/")
+    if "/" in name:
+        raise ObjImportError("data_info_directory 只能是一级目录名：{}".format(name))
+    return "{}/{}".format(destination_path, name)
+
+
+def _batch_material_root(config, material_root, destination_path, batch_timestamp):
+    """批次母材质的落点：配置显式给了目录就用它，否则放进批次目录下的 DasDataInfo。"""
+    if material_root:
+        return _normalize_game_directory(material_root, batch_timestamp)
+    return _data_info_path(config, destination_path)
+
+
+def _resolve_batch_timestamp(config):
+    """批次时间戳由启动器下发，母材质名才能和批次目录、批次关卡完全对齐。"""
+    batch_timestamp = config.get("batch_timestamp", "")
+    if not isinstance(batch_timestamp, str):
+        raise ObjImportError("batch_timestamp 必须是字符串")
+    batch_timestamp = batch_timestamp.strip()
+    if batch_timestamp:
+        return batch_timestamp
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
 def _duplicate_parent_material(parent_path, destination_root, batch_timestamp):
@@ -594,7 +628,7 @@ def main():
         unload_after_import, cleanup_interval = _load_cleanup_config(config)
         _require_commandlet_rendering()
         _register_legacy_material_mount()
-        batch_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        batch_timestamp = _resolve_batch_timestamp(config)
         destination_path = _normalize_game_directory(
             config.get("destination_root"), batch_timestamp
         )
@@ -603,7 +637,9 @@ def main():
         if duplicate_parent:
             parent_path = _duplicate_parent_material(
                 parent_path,
-                _normalize_game_directory(material_root, batch_timestamp),
+                _batch_material_root(
+                    config, material_root, destination_path, batch_timestamp
+                ),
                 batch_timestamp,
             )
         pending_packages = []

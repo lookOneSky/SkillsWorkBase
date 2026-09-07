@@ -1,2 +1,6 @@
-*.pyc
+# Python 字节码
 __pycache__/
+*.py[cod]
+
+# 临时目录
+.tmp/

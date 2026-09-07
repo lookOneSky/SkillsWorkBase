@@ -17,9 +17,12 @@ UE Python 对象。
    `YYYYMMDD_HHMMSS`，对应项目物理目录 `Content/ObjImport/YYYYMMDD_HHMMSS`。
 3. `parent_material` 默认是复制后的 `/Game/DasMaterial/MI_Model.MI_Model`。
    `batch_parent_material.enabled` 默认 `true`，会在导入开始前把它复制成
-   `<batch_parent_material.destination_root>/MI_Model_<时间戳>`（缺省 `/Game/ObjImport`，
-   与批次目录、批次关卡同级同后缀，删批次时在一个目录里就能删干净），
-   本批次的材质实例全部挂到这份副本上，调参不影响历史批次。改成 `false` 则所有批次共用同一个母材质。
+   `<批次目录>/<data_info_directory>/MI_Model_<时间戳>`（`data_info_directory` 缺省 `DasDataInfo`，
+   与 `obj_ue_import.exe` 写的 `metadata.json` 和批次关卡同一个目录，删批次目录时一起删干净），
+   本批次的材质实例全部挂到这份副本上，调参不影响历史批次。改成 `false` 则所有批次共用同一个母材质；
+   给 `batch_parent_material.destination_root` 填绝对目录（支持 `{timestamp}` / `{date}`）则放到批次目录外。
+   `batch_timestamp` 由 `obj_ue_import.exe` 下发，保证副本与批次目录、批次关卡带同一个时间戳；
+   单独跑脚本时留空，脚本自己取当前时间。
 4. `texture_import_data` 中非空的参数名必须存在于母材质。`base_emmisive_texture_name` 的 `emmisive`
    拼写来自 UE 5.3 属性名，请勿改为 `emissive`。
 5. `material_search_location=DO_NOT_SEARCH` 可避免复用同名旧材质，保证按 `parent_material` 新建材质实例。
@@ -68,7 +71,8 @@ import_obj.bat "D:\data\model.obj" "D:\config\import_obj.json"
 - 目录内直接包含本批次全部瓦块资产，不再为每个瓦块创建子目录
 - 静态模型前缀：`SM_`
 - 默认材质目录：工具内 `DasMaterial` 覆盖复制到项目 `Content/DasMaterial`
-- 材质：以本批次副本 `/Game/ObjImport/MI_Model_YYYYMMDD_HHMMSS` 为父级生成材质实例
+- 材质：以本批次副本 `/Game/ObjImport/YYYYMMDD_HHMMSS/DasDataInfo/MI_Model_YYYYMMDD_HHMMSS` 为父级生成材质实例
+- 批次信息：同一个 `DasDataInfo` 目录里保存 `metadata.json`（`metadata.xml` 的经纬度换算结果）和汇总关卡 `mapObjImport_YYYYMMDD_HHMMSS`
 
 首次导入后若要覆盖同名资产，将 `import_task.replace_existing` 和 `replace_existing_settings` 改为 `true`。
 
@@ -76,10 +80,11 @@ import_obj.bat "D:\data\model.obj" "D:\config\import_obj.json"
 
 由 `obj_ue_import.exe` 在导入与改纹理都完成后执行，配置见 `build_level.json`：
 
-- `level_root` + `level_name_prefix` + 批次时间戳拼成关卡路径，默认 `/Game/ObjImport/mapObjImport_YYYYMMDD_HHMMSS`；
+- `obj_ue_import.exe` 把 `level_root` 写成本批次的 `data_info_directory`，与 `level_name_prefix` 和批次时间戳拼成关卡路径，默认 `/Game/ObjImport/YYYYMMDD_HHMMSS/DasDataInfo/mapObjImport_YYYYMMDD_HHMMSS`；直接运行脚本且未提供 `level_root` 时，默认使用 `destination_path/DasDataInfo`；
 - 批次目录里的全部 StaticMesh 用**同一个**偏移量放进关卡，瓦块相对位置与 OBJ 原始坐标一致；
 - `origin_alignment` 决定这个偏移量：`bottom_center`（缺省，XY 取总包围盒中心、Z 取最小值）、
   `center`（XYZ 都取中心）、`xy_center`（只平移 XY，保留原始高程）；
+- `outliner_folder`（缺省 `DasImport`）是本批次全部 Actor 在数据大纲中的目录，支持 `A/B` 多层，置空则不分组；
 - `destination_path` 与 `batch_timestamp` 由工具写入临时配置，不需要手写。
 
 必须排在改纹理之后：关卡 Actor 会一直引用网格、材质与纹理，先建关卡会让
