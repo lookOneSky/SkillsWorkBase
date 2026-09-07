@@ -19,6 +19,14 @@ SHARED_SOURCE_ROOT = ROOT / ".agents" / "skills"
 CLAUDE_SOURCE_ROOT = ROOT / ".claude" / "skills"
 
 
+class SkillMissing(Exception):
+    """源目录中不存在该 Skill，属正常跳过。"""
+
+
+class SkillInvalid(Exception):
+    """Skill 存在但无法部署，需记为失败。"""
+
+
 def workbuddy_config_dir() -> Path:
     """与 WorkBuddy 桌面端 getWorkbuddyConfigDir() 一致地解析配置目录。
 
@@ -151,9 +159,9 @@ def locate_skill(name: str) -> tuple[Path, set[str]]:
         if (source / "SKILL.md").is_file()
     ]
     if not matches:
-        raise FileNotFoundError(f"未找到 Skill：{name}")
+        raise SkillMissing(f"未找到 Skill：{name}")
     if len(matches) > 1:
-        raise ValueError(f"Skill 同时存在于共享与 Claude 专用目录：{name}")
+        raise SkillInvalid(f"Skill 同时存在于共享与 Claude 专用目录：{name}")
     return matches[0]
 
 
@@ -162,7 +170,7 @@ def install(name: str) -> None:
     skill_file = source / "SKILL.md"
     metadata_name = declared_name(skill_file)
     if metadata_name != name:
-        raise ValueError(
+        raise SkillInvalid(
             f"Skill 目录名必须与 YAML name 一致：{name} != {metadata_name}"
         )
     for product, target_root in TARGET_ROOTS:
@@ -190,26 +198,23 @@ def uninstall(name: str) -> None:
 
 
 def available_skills() -> list[str]:
-    sources: dict[str, Path] = {}
-    for source_root in (SHARED_SOURCE_ROOT, CLAUDE_SOURCE_ROOT):
-        if not source_root.is_dir():
-            continue
-        for path in source_root.iterdir():
-            if not (path / "SKILL.md").is_file():
-                continue
-            if path.name in sources:
-                raise ValueError(f"Skill 同时存在于共享与 Claude 专用目录：{path.name}")
-            metadata_name = declared_name(path / "SKILL.md")
-            if metadata_name != path.name:
-                raise ValueError(
-                    f"Skill 目录名必须与 YAML name 一致：{path.name} != {metadata_name}"
-                )
-            sources[path.name] = path
-    if not sources:
+    """列出两个源根下含 SKILL.md 的目录名；具体校验留给 install/uninstall 逐个处理。"""
+    source_roots = [
+        root
+        for root in (SHARED_SOURCE_ROOT, CLAUDE_SOURCE_ROOT)
+        if root.is_dir()
+    ]
+    if not source_roots:
         raise FileNotFoundError(
             f"未找到 Skill 目录：{SHARED_SOURCE_ROOT} 或 {CLAUDE_SOURCE_ROOT}"
         )
-    return sorted(sources)
+    names = {
+        path.name
+        for source_root in source_roots
+        for path in source_root.iterdir()
+        if (path / "SKILL.md").is_file()
+    }
+    return sorted(names)
 
 
 def read_key() -> str:
@@ -264,11 +269,32 @@ def main() -> int:
 
     names = args.skills or available_skills()
     if not names:
-        parser.error("没有找到可处理的 Skill")
+        print("没有找到可处理的 Skill，未做更改。")
+        return 0
+
     operation = install if action == "install" else uninstall
+    succeeded: list[str] = []
+    skipped: list[str] = []
+    failed: list[str] = []
     for name in names:
-        operation(name)
-    return 0
+        try:
+            operation(name)
+        except SkillMissing as error:
+            skipped.append(name)
+            print(f"已跳过（源中不存在）：{error}")
+        except (SkillInvalid, ValueError, OSError, UnicodeError) as error:
+            failed.append(f"{name}：{error}")
+            sys.stdout.flush()
+            print(f"已跳过（处理失败）：{name}：{error}", file=sys.stderr)
+        else:
+            succeeded.append(name)
+
+    print(
+        f"汇总：成功 {len(succeeded)} 个 / 跳过 {len(skipped)} 个 / 失败 {len(failed)} 个"
+    )
+    for failure in failed:
+        print(f"失败：{failure}")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

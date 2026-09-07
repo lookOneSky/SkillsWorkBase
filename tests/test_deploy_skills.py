@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -102,6 +105,30 @@ class DeploySkillsTests(unittest.TestCase):
         (skill / "payload.txt").write_text("payload", encoding="utf-8")
         return skill
 
+    def create_broken_skill(self, source_root: Path, name: str, body: str) -> Path:
+        skill = source_root / name
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text(body, encoding="utf-8")
+        return skill
+
+    def run_main(self, *arguments: str) -> int:
+        argv = ["deploy_claude_skills.py", *arguments]
+        with patch.object(sys, "argv", argv), contextlib.redirect_stdout(
+            io.StringIO()
+        ), contextlib.redirect_stderr(io.StringIO()):
+            return deploy_skills.main()
+
+    def assertInstalled(self, name: str) -> None:
+        for product, target_root in self.targets:
+            self.assertTrue(
+                (target_root / name / "payload.txt").is_file(),
+                f"{product} 缺少 {name}",
+            )
+
+    def assertNotInstalled(self, name: str) -> None:
+        for product, target_root in self.targets:
+            self.assertFalse((target_root / name).exists(), f"{product} 多出 {name}")
+
     def test_shared_skill_installs_to_all_products(self) -> None:
         name = "das-shared-test"
         self.create_skill(self.shared, name)
@@ -139,6 +166,57 @@ class DeploySkillsTests(unittest.TestCase):
 
         for _, target_root in self.targets:
             self.assertFalse((target_root / name).exists())
+
+    def test_missing_skill_is_skipped_without_failing(self) -> None:
+        self.create_skill(self.shared, "das-good")
+
+        exit_code = self.run_main("--action", "install", "das-good", "das-absent")
+
+        self.assertEqual(exit_code, 0)
+        self.assertInstalled("das-good")
+        self.assertNotInstalled("das-absent")
+
+    def test_broken_frontmatter_is_skipped_and_reported_as_failure(self) -> None:
+        self.create_skill(self.shared, "das-good")
+        self.create_broken_skill(self.shared, "das-broken", "没有 frontmatter\n")
+
+        exit_code = self.run_main("--action", "install")
+
+        self.assertEqual(exit_code, 1)
+        self.assertInstalled("das-good")
+        self.assertNotInstalled("das-broken")
+
+    def test_name_mismatch_is_skipped_and_reported_as_failure(self) -> None:
+        self.create_skill(self.shared, "das-good")
+        self.create_broken_skill(
+            self.shared,
+            "das-mismatch",
+            "---\nname: das-other\ndescription: test\n---\n",
+        )
+
+        exit_code = self.run_main("--action", "install")
+
+        self.assertEqual(exit_code, 1)
+        self.assertInstalled("das-good")
+        self.assertNotInstalled("das-mismatch")
+
+    def test_duplicate_source_is_skipped_and_reported_as_failure(self) -> None:
+        self.create_skill(self.shared, "das-good")
+        self.create_skill(self.shared, "das-duplicate")
+        self.create_skill(self.claude, "das-duplicate")
+
+        exit_code = self.run_main("--action", "install")
+
+        self.assertEqual(exit_code, 1)
+        self.assertInstalled("das-good")
+        self.assertNotInstalled("das-duplicate")
+
+    def test_empty_source_roots_succeed_without_changes(self) -> None:
+        self.shared.mkdir(parents=True)
+        self.claude.mkdir(parents=True)
+
+        self.assertEqual(deploy_skills.available_skills(), [])
+        self.assertEqual(self.run_main("--action", "install"), 0)
 
 
 if __name__ == "__main__":
