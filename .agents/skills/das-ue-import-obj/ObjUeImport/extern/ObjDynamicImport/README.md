@@ -18,7 +18,7 @@ UE Python 对象。
 3. `parent_material` 默认是复制后的 `/Game/DasMaterial/MI_Model.MI_Model`。
    `batch_parent_material.enabled` 默认 `true`，会在导入开始前把它复制成
    `<批次目录>/<data_info_directory>/MI_Model_<时间戳>`（`data_info_directory` 缺省 `DasDataInfo`，
-   与 `obj_ue_import.exe` 写的 `metadata.json` 和批次关卡同一个目录，删批次目录时一起删干净），
+   与 `obj_ue_import.exe` 写的 `metadata.json` 同一个目录，删批次目录时一起删干净），
    本批次的材质实例全部挂到这份副本上，调参不影响历史批次。改成 `false` 则所有批次共用同一个母材质；
    给 `batch_parent_material.destination_root` 填绝对目录（支持 `{timestamp}` / `{date}`）则放到批次目录外。
    `batch_timestamp` 由 `obj_ue_import.exe` 下发，保证副本与批次目录、批次关卡带同一个时间戳；
@@ -64,6 +64,18 @@ import_obj.bat "D:\data\tiles"
 import_obj.bat "D:\data\model.obj" "D:\config\import_obj.json"
 ```
 
+## 交互式 UE 实例启动与缓存
+
+仓库同时提供独立 Qt 程序 `das_ue_launcher.exe`，用于获取或启动普通交互式 Unreal Editor。它与本目录的 commandlet 导入脚本相互独立，不会把 `UnrealEditor-Cmd.exe` 当作可复用实例。
+
+```powershell
+das_ue_launcher.exe --ue-launch "D:\Project\MyProject.uproject"
+```
+
+处理顺序固定为：优先验证 `<项目目录>\DasUESkill.json` 中的 `process_id` 与进程命令行；缓存失效后扫描当前 UE 实例；没有实例才按 `EngineAssociation` 等信息自动定位编辑器并选择配置后启动。程序无限等待 `UnrealWindow` 主窗口就绪，随后原子刷新 JSON。
+
+缓存固定生成在 `.uproject` 所在目录，且只保存 `{"process_id":1234}`；不记录项目、引擎、配置、来源、时间或关卡状态。完整界面与命令行说明见仓库的 `docs/das_ue_launcher_cli.md`。
+
 默认结果：
 
 - UE 目录：`/Game/ObjImport/YYYYMMDD_HHMMSS`
@@ -72,7 +84,7 @@ import_obj.bat "D:\data\model.obj" "D:\config\import_obj.json"
 - 静态模型前缀：`SM_`
 - 默认材质目录：工具内 `DasMaterial` 覆盖复制到项目 `Content/DasMaterial`
 - 材质：以本批次副本 `/Game/ObjImport/YYYYMMDD_HHMMSS/DasDataInfo/MI_Model_YYYYMMDD_HHMMSS` 为父级生成材质实例
-- 批次信息：同一个 `DasDataInfo` 目录里保存 `metadata.json`（`metadata.xml` 的经纬度换算结果）和汇总关卡 `mapObjImport_YYYYMMDD_HHMMSS`
+- 批次信息：`obj_ue_import.exe` 另在同一个 `DasDataInfo` 目录里写 `metadata.json`（`metadata.xml` 的经纬度换算结果）
 
 首次导入后若要覆盖同名资产，将 `import_task.replace_existing` 和 `replace_existing_settings` 改为 `true`。
 
@@ -80,7 +92,7 @@ import_obj.bat "D:\data\model.obj" "D:\config\import_obj.json"
 
 由 `obj_ue_import.exe` 在导入与改纹理都完成后执行，配置见 `build_level.json`：
 
-- `obj_ue_import.exe` 把 `level_root` 写成本批次的 `data_info_directory`，与 `level_name_prefix` 和批次时间戳拼成关卡路径，默认 `/Game/ObjImport/YYYYMMDD_HHMMSS/DasDataInfo/mapObjImport_YYYYMMDD_HHMMSS`；直接运行脚本且未提供 `level_root` 时，默认使用 `destination_path/DasDataInfo`；
+- `level_root` + `level_name_prefix` + 批次时间戳拼成关卡路径，默认 `/Game/ObjImport/mapObjImport_YYYYMMDD_HHMMSS`；
 - 批次目录里的全部 StaticMesh 用**同一个**偏移量放进关卡，瓦块相对位置与 OBJ 原始坐标一致；
 - `origin_alignment` 决定这个偏移量：`bottom_center`（缺省，XY 取总包围盒中心、Z 取最小值）、
   `center`（XYZ 都取中心）、`xy_center`（只平移 XY，保留原始高程）；

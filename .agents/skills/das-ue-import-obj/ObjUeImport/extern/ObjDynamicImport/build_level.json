@@ -1,4 +1,5 @@
 {
+  "level_root": "/Game/ObjImport",
   "level_name_prefix": "mapObjImport_",
   "origin_alignment": "bottom_center",
   "outliner_folder": "DasImport"

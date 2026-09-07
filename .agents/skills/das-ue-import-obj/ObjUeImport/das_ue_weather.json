@@ -1,0 +1,23 @@
+{
+    "time": "",
+    "time_of_day": null,
+
+    "preset": "",
+    "cloud_coverage": null,
+    "rain": null,
+    "snow": null,
+    "fog": null,
+    "dust": null,
+    "wind_strength": null,
+    "lightning": null,
+    "wind_direction": null,
+
+    "sky_actor": "",
+    "sky_blueprint": "",
+    "weather_actor": "",
+    "weather_blueprint": "",
+
+    "outliner_folder": "DasWeather",
+    "save": false,
+    "timeout_seconds": 15
+}

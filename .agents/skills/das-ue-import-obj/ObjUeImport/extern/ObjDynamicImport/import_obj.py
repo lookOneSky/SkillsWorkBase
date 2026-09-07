@@ -42,7 +42,7 @@ _BATCH_MATERIAL_DEFAULTS = {
     "destination_root": "",
 }
 
-# 批次目录下汇总元数据、批次母材质与关卡的目录名，obj_ue_import.exe 读的是同一个键。
+# 批次目录下汇总元数据与批次母材质的目录名，obj_ue_import.exe 读的是同一个键。
 _DATA_INFO_DIRECTORY_DEFAULT = "DasDataInfo"
 
 
@@ -377,7 +377,7 @@ def _load_batch_material_config(config):
 
 
 def _data_info_path(config, destination_path):
-    """批次目录下汇总元数据、批次母材质与关卡的目录，与 obj_ue_import.exe 用同一个配置键。"""
+    """批次目录下汇总元数据与批次母材质的目录，与 obj_ue_import.exe 用同一个配置键。"""
     name = config.get("data_info_directory", _DATA_INFO_DIRECTORY_DEFAULT)
     if not isinstance(name, str) or not name.strip():
         raise ObjImportError("data_info_directory 不能为空")
