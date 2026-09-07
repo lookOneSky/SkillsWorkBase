@@ -1,6 +1,6 @@
 ---
 name: das-ue-launch
-description: 用户要求启动、打开 Unreal 编辑器，或其他任务需要正在运行的编辑器实例时使用。
+description: 用户要求启动或打开项目、编辑器、UE，或其他任务需要正在运行的编辑器实例时使用。
 user-invocable: false
 ---
 
