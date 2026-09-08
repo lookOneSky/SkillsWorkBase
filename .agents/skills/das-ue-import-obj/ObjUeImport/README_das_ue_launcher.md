@@ -22,7 +22,7 @@ das_ue_launcher.exe --ue-launch "D:\Project\MyProject.uproject" -- -log
 | `--` | 后续参数原样传给 Unreal Editor |
 | `--help`, `-h` | 显示帮助 |
 
-命令行与界面都会一直等待主窗口出现，不设置超时。界面的“停止等待”只终止本次等待，不关闭已经存在或刚启动的 UE 进程。
+命令行与界面都会一直等待主窗口出现，不设置超时。界面的“停止等待”只终止本次等待，不关闭已经存在或刚启动的 UE 进程。新启动的编辑器会脱离允许脱离的 Windows Job，并使用独立进程组，因此 Launcher、调用它的自动化宿主或控制台结束后，编辑器仍继续运行；若宿主要求随 Job 关闭清理子进程却禁止脱离，Launcher 会在启动 UE 前明确报错。
 
 ## Python 远程执行自动配置
 
@@ -92,7 +92,7 @@ UE_LAUNCH_RESULT={"process_id":1234,"project":"D:/Project/MyProject.uproject","r
 
 缓存写入失败不会关闭已经运行的 Unreal Editor。`restart_required` 为 `true` 时退出码仍是 `0`——实例本身是就绪的，只是远程执行还没生效，由调用方决定怎么处理。
 
-命令行打印完 `UE_LAUNCH_RESULT=` 就立刻退出。启动的编辑器不继承本程序的标准句柄，所以 `| Tee-Object` 会随本程序退出而结束，不会挂到编辑器被关掉。
+命令行打印完 `UE_LAUNCH_RESULT=` 就立刻退出。启动的编辑器不继承本程序的标准句柄或可脱离的宿主 Job，所以 `| Tee-Object` 会随本程序退出而结束，编辑器不会被 Launcher 或自动化宿主的收尾动作关闭。
 
 ## 发布
 

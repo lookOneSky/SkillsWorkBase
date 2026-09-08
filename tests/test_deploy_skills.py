@@ -34,6 +34,16 @@ class TargetConfigurationTests(unittest.TestCase):
             Path.home() / ".workbuddy" / "skills",
         )
 
+    def test_spatial_mind_custom_skill_directory_is_configured(self) -> None:
+        app_data = Path("D:/users/test/AppData/Roaming")
+        with patch.dict(deploy_skills.os.environ, {"APPDATA": str(app_data)}):
+            roots = dict(deploy_skills.build_target_roots())
+
+        self.assertEqual(
+            roots["SpatialMind"],
+            app_data / "spatial-mind-desktop" / "skills" / "custom",
+        )
+
     def test_workbuddy_config_dir_honours_environment_override(self) -> None:
         keys = ("WORKBUDDY_CONFIG_DIR", "CODEBUDDY_CONFIG_DIR")
         for key in keys:
@@ -76,6 +86,14 @@ class DeploySkillsTests(unittest.TestCase):
             (
                 "WorkBuddy Legacy",
                 self.root / "targets" / ".workbuddy" / "skills",
+            ),
+            (
+                "SpatialMind",
+                self.root
+                / "targets"
+                / "spatial-mind-desktop"
+                / "skills"
+                / "custom",
             ),
         )
         self.patchers = (

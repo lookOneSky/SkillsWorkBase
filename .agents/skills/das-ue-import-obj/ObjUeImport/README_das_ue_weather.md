@@ -17,7 +17,7 @@
 
 > 程序是 WIN32 子系统，**PowerShell 不会等它退出**。必须接管道（`Tee-Object`）或重定向输出，否则提示符会立刻返回、日志和提示符交错。不要加 `2>&1`，不要用 `Start-Process` 丢掉日志。
 >
-> 打印完 `UE_WEATHER_RESULT=` 就立刻退出：本程序和它拉起的 `das_ue_launcher.exe` 都不会把标准句柄传给编辑器，管道不会挂到编辑器被关掉。
+> 打印完 `UE_WEATHER_RESULT=` 就立刻退出：本程序和它拉起的 `das_ue_launcher.exe` 都不会把标准句柄传给编辑器，Launcher 还会让新编辑器脱离可脱离的 Windows Job；管道不会挂到编辑器被关掉，Weather 正常结束、失败或取消也不会关闭已经启动的编辑器。
 
 ## 命令行选项
 
@@ -128,7 +128,7 @@ total = (小时 + 分钟 / 60 + 秒 / 3600) * 100
 1. 校验 `.uproject`，读配置并合并命令行覆盖；一项都没设就直接报参数错，不会空跑一趟远程执行。
 2. 起 `das_ue_launcher.exe --ue-launch <项目>` 拿实例，它顺带把 Python 远程执行配好；从它的 `UE_LAUNCH_RESULT=` 里取组播端点与绑定地址。
    - launcher 报 `restart_required` 时本程序直接失败，提示先重启编辑器；
-   - launcher 是无限等待的，界面上点“停止”会把这个子进程杀掉。
+   - launcher 是无限等待的，界面上点“停止”只会结束这个直接子进程，不会关闭已经启动的编辑器。
 3. 把载荷 `uds_remote.py` 与计划 `uds_plan.json` 写到 `%TEMP%\DasUeWeather\<时间戳>\`。
 4. UDP 组播发现节点 → 按工程根目录（回退工程名）挑出属于本项目的那个 → 本地开 TCP 端口，广播 `open_connection` 等编辑器回连。
 5. 发一行引导语句执行载荷，从返回的 `output` 里取 `UDS_REMOTE_RESULT=`。

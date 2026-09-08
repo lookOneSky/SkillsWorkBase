@@ -41,6 +41,13 @@ def workbuddy_config_dir() -> Path:
     return Path.home() / ".workbuddy-ai"
 
 
+def spatial_mind_skills_dir() -> Path:
+    """解析 SpatialMind 桌面端的自定义 Skill 目录。"""
+    app_data = os.environ.get("APPDATA", "").strip()
+    roaming = Path(app_data) if app_data else Path.home() / "AppData" / "Roaming"
+    return roaming / "spatial-mind-desktop" / "skills" / "custom"
+
+
 def build_target_roots() -> tuple[tuple[str, Path], ...]:
     home = Path.home()
     candidates = (
@@ -49,6 +56,7 @@ def build_target_roots() -> tuple[tuple[str, Path], ...]:
         ("WorkBuddy", workbuddy_config_dir() / "skills"),
         ("WorkBuddy Compat", home / ".codebuddy" / "skills"),
         ("WorkBuddy Legacy", home / ".workbuddy" / "skills"),
+        ("SpatialMind", spatial_mind_skills_dir()),
     )
     roots: list[tuple[str, Path]] = []
     seen: set[Path] = set()
@@ -232,7 +240,7 @@ def read_key() -> str:
 
 
 def choose_action() -> str | None:
-    print("Claude/Codex/WorkBuddy 用户级 Skill 部署工具")
+    print("Claude/Codex/WorkBuddy/SpatialMind 用户级 Skill 部署工具")
     print(f"共享 Skill 源：{SHARED_SOURCE_ROOT}")
     print(f"Claude 专用 Skill 源：{CLAUDE_SOURCE_ROOT}")
     for product, target_root in TARGET_ROOTS:
