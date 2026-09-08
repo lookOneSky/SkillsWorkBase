@@ -80,16 +80,16 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
 
 ## 天气材质自动选择
 
-天气版母材质引用旧目录 `/Game/UltraDynamicSky/...`。工具找到标准位置的标志资产后，会从实际挂载点推导插件名，并在项目 `Config\DefaultEngine.ini` 幂等写入：
+天气版母材质引用旧目录 `/Game/UltraDynamicSky/...`。工具找到完整目录结构中的标志资产后，会从挂载点推导插件名、从资产路径推导 UDS 根目录，并在项目 `Config\DefaultEngine.ini` 幂等写入。例如 UDS 位于插件根目录时：
 
 ```ini
 [CoreRedirects]
 +PackageRedirects=(OldName="/Game/UltraDynamicSky",NewName="/UltraDynamicSky",MatchSubstring=true)
 ```
 
-实际 `NewName` 使用检测到的插件挂载点，同时在 `.uproject` 中把该插件设为 `Enabled=true`，并为本次 commandlet 追加到 `-EnablePlugins=`。已有相同映射不会重复写入；同一 `OldName` 已指向其他目录时会在复制材质和启动 UE 前报错，不覆盖项目配置。
+UDS 也可以位于插件子目录，例如标志资产为 `/DasAssetLibrary/UltraDynamicSky/Materials/Weather/UltraDynamicWeather_Parameters` 时，`NewName` 使用 `/DasAssetLibrary/UltraDynamicSky`。同时，工具会在 `.uproject` 中把挂载该内容的插件设为 `Enabled=true`，并为本次 commandlet 追加到 `-EnablePlugins=`。已有相同映射不会重复写入；同一 `OldName` 已指向其他目录时会在复制材质和启动 UE 前报错，不覆盖项目配置。
 
-以下情况使用普通材质继续导入：没有标志资产、只有同名但目录结构不兼容的资产。检测 EXE 缺失、执行失败、输出损坏或出现多个兼容插件挂载点属于检测失败，会终止导入。
+以下情况使用普通材质继续导入：没有标志资产、只有同名但目录结构不兼容的资产。检测 EXE 缺失、执行失败、输出损坏或出现多个兼容天气资产根目录属于检测失败，会终止导入。
 
 导入结果默认落在 `/Game/ObjImport/<YYYYMMDD_HHMMSS>`，对应物理目录 `<项目>\Content\ObjImport\<YYYYMMDD_HHMMSS>`；静态模型前缀 `SM_`。每个 OBJ 导入后会等待 StaticMesh 构建及 DDC 写入完成，再保存资产。
 

@@ -22,3 +22,4 @@ Ultra Dynamic Sky 管时间，Ultra Dynamic Weather 管天气。`das_ue_weather.
 - 标准预设：`Clear_Skies`、`Partly_Cloudy`、`Cloudy`、`Overcast`、`Foggy`、`Rain_Light`、`Rain`、`Rain_Thunderstorm`、`Snow_Light`、`Snow`、`Snow_Blizzard`、`Sand_Dust_Calm`、`Sand_Dust_Storm`；也可使用用户给的自定义预设资产名或路径。
 - 默认只在编辑器里预览。除非用户明确要求保存关卡或保存修改，否则绝不加 `--save`；“设置”“修改”“应用”时间或天气本身不表示要保存。
 - 退出码 `0` 成功、`1` 执行失败、`2` 参数错误；末行 `UE_WEATHER_RESULT=` 是单行 JSON，每个任务带 `before` / `after`，按它报告结果。
+- 结果明确表示关卡里没有 Ultra Dynamic Sky 或 Ultra Dynamic Weather、工程里也找不到对应蓝图时，保留原始错误，并提示当前无法完整体验天气功能，提醒用户购买并导入 [Ultra Dynamic Sky](https://www.fab.com/listings/84fda27a-c79f-49c9-8458-82401fb37cfb)。仅缺少天气预设资产或发生其他错误时不要给出购买提醒。

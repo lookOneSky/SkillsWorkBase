@@ -18,5 +18,5 @@ user-invocable: false
    ```
 
    不配置参考原点时删掉整个 `--ue-origin` 选项。顺序必须是经度、纬度、高程；经纬度单位为度，高程单位为米，经度范围 `[-180,180]`，纬度范围 `[-90,90]`，三项都必须是有限数值。
-5. 判读结果：退出码 `0` 成功、`1` 执行失败、`2` 参数非法；日志里 `OBJ_IMPORT_BATCH_RESULT=` 是整批导入结果，`OBJ_IMPORT_ERROR=` 是导入报错，`[TexturePropertyBatch]` 是改纹理阶段，`OBJ_IMPORT_LEVEL=` 是汇总关卡结果，`OBJ_LEVEL_ERROR=` 是建关卡报错。指定参考原点后，只有 `OBJ_IMPORT_LEVEL=` 中的 `placement_mode` 为 `metadata_origin` 才表示原点偏移已应用；缺少 `metadata.xml` 或换算失败时导入会继续，并退回 `origin_alignment`。
-6. 报告本次批次目录（默认 `/Game/ObjImport/<YYYYMMDD_HHMMSS>`）、导入数量、汇总关卡（默认位于批次目录的 `DasDataInfo/mapObjImport_<YYYYMMDD_HHMMSS>`）、参考原点及实际 `placement_mode`、日志路径。失败时保留原始错误，不要改工程资产或配置重试。
+5. 判读结果：退出码 `0` 成功、`1` 执行失败、`2` 参数非法；日志里 `OBJ_IMPORT_BATCH_RESULT=` 是整批导入结果，`OBJ_IMPORT_ERROR=` 是导入报错，`[TexturePropertyBatch]` 是改纹理阶段，`OBJ_IMPORT_LEVEL=` 是汇总关卡结果，`OBJ_LEVEL_ERROR=` 是建关卡报错。指定参考原点后，只有 `OBJ_IMPORT_LEVEL=` 中的 `placement_mode` 为 `metadata_origin` 才表示原点偏移已应用；缺少 `metadata.xml` 或换算失败时导入会继续，并退回 `origin_alignment`。日志出现“未找到兼容资产”或“使用普通 DasMaterial”表示未检测到 Ultra Dynamic Sky，但 OBJ 会继续使用普通材质导入。
+6. 报告本次批次目录（默认 `/Game/ObjImport/<YYYYMMDD_HHMMSS>`）、导入数量、汇总关卡（默认位于批次目录的 `DasDataInfo/mapObjImport_<YYYYMMDD_HHMMSS>`）、参考原点及实际 `placement_mode`、日志路径。失败时保留原始错误，不要改工程资产或配置重试。未检测到 Ultra Dynamic Sky 时，在正常导入结果之外明确提示当前无法完整体验天气功能，并提醒用户购买并导入 [Ultra Dynamic Sky](https://www.fab.com/listings/84fda27a-c79f-49c9-8458-82401fb37cfb)。
