@@ -2,7 +2,7 @@
 
 此工具通过 `PythonScriptCommandlet` 启动无交互 Unreal Editor，将单个 OBJ 或目录内的全部 OBJ 及其引用的
 MTL、纹理导入项目 Content。一次运行只创建一个时间批次目录，所有瓦块资产直接存放在该目录内。
-启动 UE 前，工具会将脚本同目录的 `DasMaterial` 覆盖复制到项目 `Content/DasMaterial`。
+通过 `obj_ue_import.exe` 启动时，程序会先检测工程与引擎插件中的 Ultra Dynamic Weather 标志资产：命中标准目录则复制 `Weather/DasMaterial` 并配置插件与 Core Redirect，否则复制普通 `DasMaterial`。直接运行本目录的 `import_obj.bat` 时仍固定复制普通 `DasMaterial`。
 
 UE 5.3 默认使用 Interchange 导入 OBJ。为了支持自定义母材质和纹理参数名，本工具显式使用同样支持 OBJ 的旧版
 `FbxFactory`；JSON 中的 `obj_import_ui`、`static_mesh_import_data` 和 `texture_import_data` 会直接写入对应
@@ -82,7 +82,7 @@ das_ue_launcher.exe --ue-launch "D:\Project\MyProject.uproject"
 - 物理目录：`<项目>/Content/ObjImport/YYYYMMDD_HHMMSS`
 - 目录内直接包含本批次全部瓦块资产，不再为每个瓦块创建子目录
 - 静态模型前缀：`SM_`
-- 默认材质目录：工具内 `DasMaterial` 覆盖复制到项目 `Content/DasMaterial`
+- 默认材质目录：工具自动在普通 `DasMaterial` 与天气版 `Weather/DasMaterial` 间选择，并覆盖复制到项目 `Content/DasMaterial`
 - 材质：以本批次副本 `/Game/ObjImport/YYYYMMDD_HHMMSS/DasDataInfo/MI_Model_YYYYMMDD_HHMMSS` 为父级生成材质实例
 
 单跑 `import_obj.bat` 时，`DasDataInfo` 里只有上面这份批次母材质副本。`metadata.json`
@@ -97,10 +97,12 @@ das_ue_launcher.exe --ue-launch "D:\Project\MyProject.uproject"
 
 - `obj_ue_import.exe` 把 `level_root` 写成本批次的 `data_info_directory`，与 `level_name_prefix` 和批次时间戳拼成关卡路径，默认 `/Game/ObjImport/YYYYMMDD_HHMMSS/DasDataInfo/mapObjImport_YYYYMMDD_HHMMSS`；直接运行脚本且未提供 `level_root` 时，默认使用 `destination_path/DasDataInfo`；
 - 批次目录里的全部 StaticMesh 用**同一个**偏移量放进关卡，瓦块相对位置与 OBJ 原始坐标一致；
+- `placement_offset` 是可选的 `[X,Y,Z]` UE 厘米偏移；由 `obj_ue_import.exe` 根据第一份 `metadata.xml` 和 UE 参考经纬高生成，存在时优先于 `origin_alignment`；
 - `origin_alignment` 决定这个偏移量：`bottom_center`（缺省，XY 取总包围盒中心、Z 取最小值）、
   `center`（XYZ 都取中心）、`xy_center`（只平移 XY，保留原始高程）；
 - `outliner_folder`（缺省 `DasImport`）是本批次全部 Actor 在数据大纲中的目录，支持 `A/B` 多层，置空则不分组；
 - `destination_path` 与 `batch_timestamp` 由工具写入临时配置，不需要手写。
+- `OBJ_IMPORT_LEVEL=` 的 `placement_mode` 为 `metadata_origin` 时表示使用显式偏移，为 `origin_alignment` 时表示使用包围盒对齐。
 
 必须排在改纹理之后：关卡 Actor 会一直引用网格、材质与纹理，先建关卡会让
 `modify_texture.py` 的 `UnloadPackages` 全部落空。

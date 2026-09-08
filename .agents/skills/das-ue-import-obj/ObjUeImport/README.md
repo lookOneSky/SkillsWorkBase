@@ -8,7 +8,7 @@
 ## 前置条件
 
 - 目标 Unreal 项目当前**没有被编辑器打开**，否则 commandlet 会因为文件占用失败。
-- 程序目录下存在 `extern\ObjDynamicImport`（含 `import_obj.py`、`import_obj.json`、`build_level.py`、`build_level.json`、`DasMaterial`）与 `extern\ModifyTexture`（含 `modify_texture.py`、`modify_texture.json`）。发布包已自带。
+- 程序目录下存在 `das_ue_asset_path.exe`、`extern\ObjDynamicImport`（含导入脚本、普通 `DasMaterial` 与 `Weather\DasMaterial`）以及 `extern\ModifyTexture`。发布包已自带。
 - 能定位到 `UnrealEditor-Cmd.exe`，见下文「引擎定位顺序」。
 - 可选：程序目录下有 `metadata_coords.exe` 与 `share\proj\proj.db`（发布包已自带），用于换算 `metadata.xml` 的经纬度；缺失只会打警告，不影响导入。
 - 不需要在本机安装 Python：脚本由 Unreal 自带的 Python 执行。
@@ -32,6 +32,7 @@ obj_ue_import.exe --ue-import <OBJ目录> <项目.uproject> [选项]
 | `--texture-config <json>` | 程序目录下的 `extern\ModifyTexture\modify_texture.json` | 纹理配置 |
 | `--destination <UE目录>` | 导入配置里的 `destination_root` | 覆盖导入目标，支持 `{timestamp}`、`{date}` |
 | `--editor <路径>` | 按 `.uproject` 自动定位 | 指定 `UnrealEditor-Cmd.exe` |
+| `--ue-origin <经度,纬度,高程>` | 未指定 | UE 参考原点，经纬度单位为度、高程单位为米 |
 | `--max-texture-size <N>` | 纹理配置里的值 | `0`（不限制）或 2 的幂 |
 | `--virtual-texture <on\|off>` | 纹理配置里的值 | 虚拟纹理流送 |
 | `--skip-texture` | 关闭 | 只导入 OBJ，不修改纹理 |
@@ -43,6 +44,9 @@ obj_ue_import.exe --ue-import <OBJ目录> <项目.uproject> [选项]
 ```powershell
 :: 全部用默认配置：导入 + 改纹理
 obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject"
+
+:: 指定 UE 参考原点，由第一份 metadata.xml 计算整批模型偏移
+obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" --ue-origin "108.2,22.6,30"
 
 :: 只导入，不动纹理
 obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" --skip-texture
@@ -64,25 +68,42 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
 ## 运行流程
 
 1. 校验输入、统计 `.obj` 数量、定位引擎——任何一项不通过都会在启动 Unreal 之前失败。
-2. 把 `extern\ObjDynamicImport\DasMaterial` 覆盖复制到 `<项目>\Content\DasMaterial`。
-3. 找 `metadata.xml` 并换算经纬度，结果写成 `<批次目录>\DasDataInfo\metadata.json`，见下文「批次元数据」。
-4. 在 `%TEMP%\ObjUeImport\<时间戳>\` 生成三份临时配置：
+2. 调用同目录的 `das_ue_asset_path.exe`，同时扫描工程、项目插件与当前引擎插件，检查 `UltraDynamicWeather_Parameters`。
+3. 找到标准天气资产时启用插件、写入目录重定向并复制 `Weather\DasMaterial`；未找到时复制普通 `DasMaterial`。两者目标都是 `<项目>\Content\DasMaterial`。
+4. 按 OBJ 路径稳定排序，找到第一份 `metadata.xml` 并换算经纬度；指定 `--ue-origin` 时同时计算整批模型的 UE 偏移。结果写成 `<批次目录>\DasDataInfo\metadata.json`，见下文「批次元数据」。
+5. 在 `%TEMP%\ObjUeImport\<时间戳>\` 生成三份临时配置：
    - `import_obj.json`：`project_file` 改成本次项目，`destination_root` 里的 `{timestamp}` 已展开成实际时间戳，`batch_timestamp` 填成本次时间戳；
    - `modify_texture.json`：`content_directory` 填成同一个批次目录，纹理属性按命令行覆盖；
-   - `build_level.json`：`destination_path` 填成同一个批次目录，`level_root` 填成该批次的 `DasDataInfo` 路径，`batch_timestamp` 填成本次时间戳。
+   - `build_level.json`：`destination_path` 填成同一个批次目录，`level_root` 填成该批次的 `DasDataInfo` 路径，`batch_timestamp` 填成本次时间戳；原点换算成功时另写入 `placement_offset`。
    出错时可以直接打开这三个文件核对实际生效的配置。
-5. 启动一次 `UnrealEditor-Cmd.exe`，依次执行导入、改纹理、建关卡，全过程日志实时转发到标准输出。
+6. 启动一次 `UnrealEditor-Cmd.exe`，依次执行导入、改纹理、建关卡，全过程日志实时转发到标准输出。
+
+## 天气材质自动选择
+
+天气版母材质引用旧目录 `/Game/UltraDynamicSky/...`。工具找到标准位置的标志资产后，会从实际挂载点推导插件名，并在项目 `Config\DefaultEngine.ini` 幂等写入：
+
+```ini
+[CoreRedirects]
++PackageRedirects=(OldName="/Game/UltraDynamicSky",NewName="/UltraDynamicSky",MatchSubstring=true)
+```
+
+实际 `NewName` 使用检测到的插件挂载点，同时在 `.uproject` 中把该插件设为 `Enabled=true`，并为本次 commandlet 追加到 `-EnablePlugins=`。已有相同映射不会重复写入；同一 `OldName` 已指向其他目录时会在复制材质和启动 UE 前报错，不覆盖项目配置。
+
+以下情况使用普通材质继续导入：没有标志资产、只有同名但目录结构不兼容的资产。检测 EXE 缺失、执行失败、输出损坏或出现多个兼容插件挂载点属于检测失败，会终止导入。
 
 导入结果默认落在 `/Game/ObjImport/<YYYYMMDD_HHMMSS>`，对应物理目录 `<项目>\Content\ObjImport\<YYYYMMDD_HHMMSS>`；静态模型前缀 `SM_`。每个 OBJ 导入后会等待 StaticMesh 构建及 DDC 写入完成，再保存资产。
 
 ## 批次元数据（DasDataInfo）
 
-启动 Unreal **之前**，程序会为每个 `.obj` 向上找 `metadata.xml`：
+启动 Unreal **之前**，程序会把 `.obj` 绝对路径按大小写不敏感方式稳定排序，再依次向上找 `metadata.xml`：
 
 - **不看 `.obj` 自己所在的瓦块目录**——瓦块目录动辄成百上千，且从不带 `metadata.xml`；
-- 只看第 2、3、4 级上级目录，近的优先。倾斜成果常见的 `<成果>\Data\<瓦块>\<瓦块>.obj` 布局里，`<成果>\metadata.xml` 正好落在第 3 级。
+- 每个 OBJ 只看第 2、3、4 级上级目录，近的优先。倾斜成果常见的 `<成果>\Data\<瓦块>\<瓦块>.obj` 布局里，`<成果>\metadata.xml` 正好落在第 3 级；
+- 找到第一份后立即停止，不读取同批次中的其他 `metadata.xml`。第一份换算失败时也不会尝试下一份。
 
-找到的 `metadata.xml` 交给同目录下的 `metadata_coords.exe` 换算成经纬度，汇总写入 `<批次目录>\DasDataInfo\metadata.json`：
+找到的 `metadata.xml` 交给同目录下的 `metadata_coords.exe` 换算成经纬度。指定参考原点后，实际调用会增加 `--ue-origin "经度,纬度,高程"`，输出的 `ue_esu_offset` 为 `X=东、Y=南、Z=上` 的 UE 厘米偏移。结果写入 `<批次目录>\DasDataInfo\metadata.json`：
+
+界面中的经度、纬度、高程必须三项同时为空或同时填写；命令行也必须传三个有限数值。经度范围为 `[-180,180]`，纬度范围为 `[-90,90]`，输入非法会在导入前直接报参数错误。
 
 ```json
 {
@@ -96,9 +117,9 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
 }
 ```
 
-`metadata` 是数组：一个输入目录下可以并排放着多个成果，每个成果一份 `metadata.xml`，`obj_count` 是归到它名下的瓦块数。
+为兼容现有读取方，`metadata` 继续使用数组，但最多只有一项；`obj_count` 是本批次全部 OBJ 数量，因为选中的第一份 metadata 会用于整批模型。
 
-这一步**只警告不中断**：没找到 `metadata.xml`、找不到 `metadata_coords.exe`、换算失败，都只打 `[警告]` 日志，导入照常继续。要用这个功能就得保证 `metadata_coords.exe` 和 `share\proj\proj.db` 与 `obj_ue_import.exe` 在同一个目录里（发布包默认如此）。
+这一步**只警告不中断**：没找到 `metadata.xml`、找不到 `metadata_coords.exe`、换算失败或偏移格式不兼容，都会继续导入，并让关卡退回原有 `origin_alignment`。成功算出的偏移在写 `metadata.json` 前已保存在内存中，因此 JSON 落盘失败不会影响模型放置。要用这个功能必须保证 `metadata_coords.exe` 和 `share\proj\proj.db` 与 `obj_ue_import.exe` 在同一个目录里（发布包默认如此）。
 
 ## 批次独立的母材质
 
@@ -110,7 +131,7 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
 
 ## 批次关卡
 
-改纹理完成后新建关卡 `/Game/ObjImport/<YYYYMMDD_HHMMSS>/DasDataInfo/mapObjImport_<YYYYMMDD_HHMMSS>`，把批次目录里的全部 StaticMesh 放进去。所有 Actor 用**同一个**位置偏移量，因此瓦块之间的相对位置与 OBJ 原始坐标完全一致；偏移量由整批模型的总包围盒算出，默认让底面中心贴到世界原点（XY 取包围盒中心，Z 取包围盒最小值）。
+改纹理完成后新建关卡 `/Game/ObjImport/<YYYYMMDD_HHMMSS>/DasDataInfo/mapObjImport_<YYYYMMDD_HHMMSS>`，把批次目录里的全部 StaticMesh 放进去。所有 Actor 用**同一个**位置偏移量，因此瓦块之间的相对位置与 OBJ 原始坐标完全一致。指定参考原点且换算成功时直接使用 `metadata_coords.exe` 的偏移；否则由整批模型总包围盒计算，默认让底面中心贴到世界原点。
 
 关卡阶段排在改纹理之后是必需的：关卡里的 Actor 会一直引用 StaticMesh、材质实例与纹理，先建关卡会让 `modify_texture.py` 的分批卸载全部落空，内存按全量纹理线性上涨。
 
@@ -149,6 +170,7 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
 
 - `level_root` 由 `obj_ue_import.exe` 覆盖成本批次的 `data_info_directory`，与 `level_name_prefix`（缺省 `mapObjImport_`）拼上批次时间戳得到关卡资产路径；直接运行脚本且未提供该字段时，默认使用 `destination_path/DasDataInfo`；
 - `origin_alignment` 支持 `bottom_center`（缺省，XY 取包围盒中心、Z 取最小值）、`center`（XYZ 都取包围盒中心）、`xy_center`（只平移 XY，保留原始高程）；
+- `placement_offset` 是可选的 `[X,Y,Z]` UE 厘米偏移，存在时优先于 `origin_alignment`；`obj_ue_import.exe` 只在原点换算成功后写入，未指定或失败时会从临时配置中移除；
 - `outliner_folder`（缺省 `DasImport`）是本批次全部 Actor 在数据大纲中的目录，支持 `A/B` 多层，置空则不分组；
 - `destination_path`、`level_root` 与 `batch_timestamp` 每次运行都会被临时配置写入，不需要也不应该手写。
 
@@ -168,7 +190,7 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
 | `OBJ_IMPORT_UNLOAD_SKIPPED=` | 导入阶段有资产没能卸载（仍被引用），只影响内存占用，不影响导入结果 |
 | `[TexturePropertyBatch]` | 改纹理阶段的日志前缀 |
 | `[BuildLevel]` | 建关卡阶段的日志前缀 |
-| `OBJ_IMPORT_LEVEL=` | 关卡生成完成，含关卡路径、模型数、对齐方式、大纲目录、偏移量与总包围盒 |
+| `OBJ_IMPORT_LEVEL=` | 关卡生成完成，含关卡路径、模型数、`placement_mode`、对齐方式、大纲目录、偏移量与总包围盒 |
 | `OBJ_LEVEL_ERROR=` | 建关卡脚本报错，失败信息会被提取成最终错误 |
 
 ## 退出码

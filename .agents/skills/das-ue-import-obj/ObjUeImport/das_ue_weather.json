@@ -2,7 +2,7 @@
     "time": "",
     "time_of_day": null,
 
-    "preset": "",
+    "weather": "",
     "cloud_coverage": null,
     "rain": null,
     "snow": null,
@@ -11,11 +11,6 @@
     "wind_strength": null,
     "lightning": null,
     "wind_direction": null,
-
-    "sky_actor": "",
-    "sky_blueprint": "",
-    "weather_actor": "",
-    "weather_blueprint": "",
 
     "outliner_folder": "DasWeather",
     "save": false,

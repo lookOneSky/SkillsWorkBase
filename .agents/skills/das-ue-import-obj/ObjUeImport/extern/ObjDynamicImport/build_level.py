@@ -3,6 +3,7 @@
 from __future__ import print_function
 
 import json
+import math
 import os
 from pathlib import Path
 
@@ -121,6 +122,40 @@ def _compute_origin_offset(minimum, maximum, origin_alignment):
     return unreal.Vector(offset_x, offset_y, offset_z)
 
 
+def _read_placement_offset(config):
+    """读取 metadata_coords.exe 生成的 UE ESU 厘米偏移。"""
+    if "placement_offset" not in config:
+        return None
+    values = config["placement_offset"]
+    if not isinstance(values, list) or len(values) != 3:
+        raise BuildLevelError("placement_offset 必须是 [X,Y,Z] 三个数值")
+    coordinates = []
+    for value in values:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise BuildLevelError("placement_offset 必须是 [X,Y,Z] 三个数值")
+        coordinate = float(value)
+        if not math.isfinite(coordinate):
+            raise BuildLevelError("placement_offset 的 X/Y/Z 必须为有限数值")
+        coordinates.append(coordinate)
+    return unreal.Vector(*coordinates)
+
+
+def _resolve_placement_offset(config, minimum, maximum, origin_alignment):
+    placement_offset = _read_placement_offset(config)
+    if placement_offset is not None:
+        return placement_offset, "metadata_origin"
+    if origin_alignment not in _ORIGIN_ALIGNMENTS:
+        raise BuildLevelError(
+            "origin_alignment 只支持 {}，收到 {}".format(
+                "、".join(_ORIGIN_ALIGNMENTS), origin_alignment
+            )
+        )
+    return (
+        _compute_origin_offset(minimum, maximum, origin_alignment),
+        "origin_alignment",
+    )
+
+
 def _wait_for_render_data(static_meshes):
     """读 RenderData 逼停 UE 的异步静态网格编译。
 
@@ -205,12 +240,6 @@ def main():
         if not isinstance(name_prefix, str):
             raise BuildLevelError("level_name_prefix 必须是字符串")
         origin_alignment = config.get("origin_alignment", _DEFAULTS["origin_alignment"])
-        if origin_alignment not in _ORIGIN_ALIGNMENTS:
-            raise BuildLevelError(
-                "origin_alignment 只支持 {}，收到 {}".format(
-                    "、".join(_ORIGIN_ALIGNMENTS), origin_alignment
-                )
-            )
         outliner_folder = _require_outliner_folder(
             config.get("outliner_folder", _DEFAULTS["outliner_folder"])
         )
@@ -237,7 +266,9 @@ def main():
         static_meshes = _load_static_meshes(static_mesh_paths)
         _wait_for_render_data(static_meshes)
         minimum, maximum = _merge_bounding_boxes(static_meshes)
-        offset = _compute_origin_offset(minimum, maximum, origin_alignment)
+        offset, placement_mode = _resolve_placement_offset(
+            config, minimum, maximum, origin_alignment
+        )
         _spawn_static_meshes(static_meshes, offset, outliner_folder)
 
         # 新关卡还没有 SaveAs 之外的文件名，SaveCurrentLevel 在 unattended 下会直接失败
@@ -257,6 +288,7 @@ def main():
                     "destination_path": destination_path,
                     "static_mesh_count": len(static_meshes),
                     "origin_alignment": origin_alignment,
+                    "placement_mode": placement_mode,
                     "outliner_folder": outliner_folder,
                     "offset": [offset.x, offset.y, offset.z],
                     "bounds_min": [minimum.x, minimum.y, minimum.z],

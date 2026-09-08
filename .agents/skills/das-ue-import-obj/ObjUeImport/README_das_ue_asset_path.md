@@ -2,7 +2,7 @@
 
 输入一个 `.uproject` 和一个资产名，输出这个资产在工程里的完整对象路径（就是编辑器里右键 “Copy Reference” 拿到的那种 `/Game/…` 路径）。**没找到就返回空路径。**
 
-程序**不启动 Unreal**：它直接扫描工程的 Content 目录，把 `.uasset` / `.umap` 文件路径映射成 UE 对象路径。因此查询是毫秒级的，编辑器开着也能查，目标机器不需要装 Python，也不需要引擎。
+程序**不启动 Unreal**：它直接扫描工程的 Content 目录，把 `.uasset` / `.umap` 文件路径映射成 UE 对象路径。因此查询是毫秒级的，编辑器开着也能查，目标机器不需要装 Python。默认不依赖引擎；传 `--engine-root` 时会额外扫描该引擎安装下的插件内容。
 
 ## 使用
 
@@ -13,6 +13,7 @@
 ```powershell
 & "das_ue_asset_path.exe" --ue-asset-path "D:\Proj\My.uproject" MI_Model | Tee-Object -FilePath "$env:TEMP\assetpath.log"
 & "das_ue_asset_path.exe" --ue-asset-path "D:\Proj\My.uproject" MI_Model --path-only | Tee-Object -FilePath "$env:TEMP\assetpath.log"
+& "das_ue_asset_path.exe" --ue-asset-path "D:\Proj\My.uproject" UltraDynamicWeather_Parameters --engine-root "C:\Program Files\Epic Games\UE_5.3" | Tee-Object -FilePath "$env:TEMP\assetpath.log"
 ```
 
 > 程序是 WIN32 子系统，**PowerShell 不会等它退出**。必须接管道（`Tee-Object`）或重定向输出，否则提示符会立刻返回、日志和提示符交错。
@@ -22,15 +23,17 @@
 | 选项 | 说明 |
 | --- | --- |
 | `--path-only` | 只打印第一个命中的对象路径，不打日志与结果 JSON；没找到就打印空行 |
+| `--engine-root <目录>` | 在工程内容之后额外扫描 `<目录>\Engine\Plugins\**\Content`；目录无效时返回参数错误 |
 | `--help`, `-h` | 显示帮助 |
 
 不带 `--ue-asset-path` 启动则打开图形界面。
+图形界面保持原有扫描范围；扫描引擎插件请使用命令行并传入 `--engine-root`。
 
 ## 匹配规则
 
 - **只按资产名匹配**，不做资产类型过滤——工具不解析 `.uasset` 内容，因此结果里没有类名。
 - **资产名区分大小写**。磁盘在 Windows 上不区分，但 UE 的资产名区分，所以只差大小写的文件**不算命中**；这种情况会额外打一条“存在只差大小写的同名资产”提示，返回值仍然是空。
-- 同名资产可能有多个（分布在不同目录或不同挂载点），**全部返回**。排序规则是先 `/Game` 后插件（插件之间按名字），同一个挂载点内按对象路径；`path` 取排序后的第一个。工程和插件里各有一个同名资产时，第一条就是工程自己的那个。
+- 同名资产可能有多个（分布在不同目录或不同挂载点），**全部返回**。排序规则是先 `/Game`、再项目插件、最后引擎插件；每一层的插件按名字排序，同一个挂载点内按对象路径。项目与引擎有同名插件时只扫描项目版本；`path` 取排序后的第一个。
 - `.uasset` 与 `.umap` 都算资产：关卡同样按 `/Game/Maps/M.M` 引用。
 - 跳过 `__ExternalActors__` 与 `__ExternalObjects__`：UE5 的 One File Per Actor 在那里生成海量每 Actor 包，既不是要查的资产，又会拖慢扫描。
 
@@ -40,10 +43,11 @@
 | --- | --- |
 | `<项目>\Content` | `/Game` |
 | `<项目>\Plugins\**\<插件>.uplugin` 的同级 `Content` | `/<插件名>` |
+| `<UE根>\Engine\Plugins\**\<插件>.uplugin` 的同级 `Content` | `/<插件名>`（仅传 `--engine-root`） |
 
 挂载点名字取 `.uplugin` 的**文件名**，与它所在目录名无关，这和 UE 的挂载规则一致。
 
-引擎自带内容（`/Engine`）与引擎目录下的插件**不在范围内**——问题是“这个 Uproject 里的资产”。工程连 `Content` 目录都没有时只打一条警告，仍然按“未找到”正常返回。
+`/Engine/Content` 始终不在范围内；引擎插件只有显式传 `--engine-root` 时才扫描。工程连 `Content` 目录都没有时只打一条警告，仍然按“未找到”正常返回。
 
 ## 输出
 
@@ -104,5 +108,5 @@ if ($path) { "资产在 $path" } else { "工程里没有这个资产" }
 
 - 只支持 Windows 上的 Unreal 工程布局。
 - 不解析 `.uasset` 头，因此没有资产类型、没有依赖关系。
-- 不查引擎内容，不处理 `.uproject` 里 `AdditionalPluginDirectories` 指到工程之外的插件目录。
+- 不查 `/Engine/Content`，不处理 `.uproject` 里 `AdditionalPluginDirectories` 指到工程之外的插件目录。
 - 每次查询都完整扫一遍 Content，不落磁盘缓存；超大工程（数十万资产）单次查询在秒级。

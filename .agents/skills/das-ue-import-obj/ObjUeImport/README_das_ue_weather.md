@@ -6,14 +6,17 @@
 
 ## 使用
 
-双击程序打开 Qt 图形界面：选 `.uproject`，填时间、预设，勾选要改的天气项，点“设置时间 / 天气”。**只有勾选的项才会下发**，没勾的保持原样——这样才能区分“不改”和“设为 0”。
+双击程序打开 Qt 图形界面：选 `.uproject`，填时间、选天气类型，勾选要改的天气项，点“设置时间 / 天气”。**只有勾选的项才会下发**，没勾的保持原样——这样才能区分“不改”和“设为 0”。
 
 命令行模式：
 
 ```powershell
 & "das_ue_weather.exe" --ue-weather "D:\Proj\My.uproject" --time 09:30 | Tee-Object -FilePath "$env:TEMP\weather.log"
+& "das_ue_weather.exe" --ue-weather "D:\Proj\My.uproject" --weather rain --save | Tee-Object -FilePath "$env:TEMP\weather.log"
 & "das_ue_weather.exe" --ue-weather "D:\Proj\My.uproject" --rain 0.4 --fog 0.2 --save | Tee-Object -FilePath "$env:TEMP\weather.log"
 ```
+
+**外部只给类型，资产路径一律不传。** UDS / UDW 的实例和蓝图、天气预设的资产路径都由编辑器侧自己找，没有 `--sky-actor` / `--sky-blueprint` / `--weather-actor` / `--weather-blueprint` 这类选项。
 
 > 程序是 WIN32 子系统，**PowerShell 不会等它退出**。必须接管道（`Tee-Object`）或重定向输出，否则提示符会立刻返回、日志和提示符交错。不要加 `2>&1`，不要用 `Start-Process` 丢掉日志。
 >
@@ -25,7 +28,7 @@
 | --- | --- |
 | `--time <HH:MM[:SS]>` | 设置 UDS 的时间，与 `--time-of-day` 互斥 |
 | `--time-of-day <0-2400>` | 直接写 UDS 原始刻度 |
-| `--preset <资产>` | 天气预设，写它会先清掉全部手动覆盖开关 |
+| `--weather <类型>` | 天气类型，写它会先清掉全部手动覆盖开关 |
 | `--cloud-coverage <浮点>` | 云量 |
 | `--rain <浮点>` | 雨 |
 | `--snow <浮点>` | 雪 |
@@ -33,13 +36,9 @@
 | `--dust <浮点>` | 尘 |
 | `--wind-strength <浮点>` | 风力（`Wind Intensity`） |
 | `--lightning <浮点>` | 闪电 |
-| `--wind-direction <浮点>` | 风向（`Base Wind Direction`），独立项，不受预设影响 |
+| `--wind-direction <浮点>` | 风向（`Base Wind Direction`），独立项，不受天气类型影响 |
 | `--config <json>` | 配置文件，缺省用随程序的 `das_ue_weather.json` |
 | `--outliner-folder <名字>` | 新建 Actor 的数据大纲目录，缺省 `DasWeather` |
-| `--sky-actor <路径或标签>` | 指定 UDS 实例 |
-| `--sky-blueprint <资产>` | 指定 UDS 蓝图，用于关卡里没有实例时生成 |
-| `--weather-actor <路径或标签>` | 指定 UDW 实例 |
-| `--weather-blueprint <资产>` | 指定 UDW 蓝图 |
 | `--save` | 写完保存关卡与 Actor 包 |
 | `--launcher <路径>` | `das_ue_launcher.exe`，缺省找本程序同目录 |
 | `--skip-launch` | 已确认编辑器在跑时跳过实例获取，用默认组播设置 |
@@ -47,6 +46,28 @@
 | `--help`, `-h` | 显示帮助 |
 
 **命令行的设置会盖过配置文件。** 不带 `--ue-weather` 启动则打开图形界面。
+
+## 天气类型
+
+`--weather` 和配置里的 `weather` 只收类型，程序把它翻成预设资产名下发，路径由编辑器侧在 `UltraDynamicSky/Blueprints/Weather_Effects/Weather_Presets` 找，找不到再按资产名扫一遍资产库——工程把 UDS 装到别的目录也能用。
+
+| 类型 | 中文名 | 预设资产 |
+| --- | --- | --- |
+| `clear` | 晴 | `Clear_Skies` |
+| `partly-cloudy` | 少云 | `Partly_Cloudy` |
+| `cloudy` | 多云 | `Cloudy` |
+| `overcast` | 阴 | `Overcast` |
+| `foggy` | 雾 | `Foggy` |
+| `rain-light` | 小雨 | `Rain_Light` |
+| `rain` | 雨 | `Rain` |
+| `thunderstorm` | 雷雨 | `Rain_Thunderstorm` |
+| `snow-light` | 小雪 | `Snow_Light` |
+| `snow` | 雪 | `Snow` |
+| `blizzard` | 暴雪 | `Snow_Blizzard` |
+| `dust` | 浮尘 | `Sand_Dust_Calm` |
+| `dust-storm` | 沙尘暴 | `Sand_Dust_Storm` |
+
+三列写哪一个都认，大小写与 `-` / `_` / 空格不敏感；写了表外的名字直接报参数错（退出码 `2`），并列出可选值。
 
 ## 时间换算
 
@@ -78,16 +99,16 @@ total = (小时 + 分钟 / 60 + 秒 / 3600) * 100
 | `dust` | `Dust` | `Dust - Manual Override` |
 | `wind_strength` | `Wind Intensity` | `Wind Intensity - Manual Override` |
 | `lightning` | `Lightning` | 无（UDW 没有这个开关） |
-| `wind_direction` | `Base Wind Direction` | 无（独立项，预设不影响它） |
+| `wind_direction` | `Base Wind Direction` | 无（独立项，天气类型不影响它） |
 
 写入顺序是固定的，改代码时不要动：
 
-1. 给了 `preset` 就先把上表全部覆盖开关置 `false`（标记为可选，老版本 UDS 缺某个开关也不中断）；
+1. 给了 `weather` 就先把上表全部覆盖开关置 `false`（标记为可选，老版本 UDS 缺某个开关也不中断）；
 2. 写 `Weather` 预设；
 3. 再写手动项：先写值，紧接着把它的覆盖开关置 `true`——不置 `true` 值不生效；
 4. 最后写独立项。
 
-顺序反了会出现“预设把刚写的手动值盖掉”或“上一次的手动值把新预设盖掉”。
+顺序反了会出现“天气类型把刚写的手动值盖掉”或“上一次的手动值把新类型盖掉”。
 
 取值范围由 UDS / UDW 自己决定，程序不做上下限检查，原样写进属性。
 
@@ -100,7 +121,7 @@ total = (小时 + 分钟 / 60 + 秒 / 3600) * 100
     "time": "",
     "time_of_day": null,
 
-    "preset": "",
+    "weather": "",
     "cloud_coverage": null,
     "rain": null,
     "snow": null,
@@ -109,11 +130,6 @@ total = (小时 + 分钟 / 60 + 秒 / 3600) * 100
     "wind_strength": null,
     "lightning": null,
     "wind_direction": null,
-
-    "sky_actor": "",
-    "sky_blueprint": "",
-    "weather_actor": "",
-    "weather_blueprint": "",
 
     "outliner_folder": "DasWeather",
     "save": false,
@@ -134,7 +150,7 @@ total = (小时 + 分钟 / 60 + 秒 / 3600) * 100
 5. 发一行引导语句执行载荷，从返回的 `output` 里取 `UDS_REMOTE_RESULT=`。
 6. 打印每一项的写入结果，输出 `UE_WEATHER_RESULT=`，清理临时目录。
 
-演员识别不写死资产路径：先按类名（去掉蓝图的 `_C` 后缀）匹配 `Ultra_Dynamic_Sky` / `Ultra_Dynamic_Weather`，再用必需属性（`Time of Day` / `Weather`）兜底，因此改过名的子蓝图也能认出来。关卡里没有实例时，从资产库找到对应蓝图生成一个，并放进 `outliner_folder`。
+演员识别不用外面传，也不写死资产路径：先按类名（去掉蓝图的 `_C` 后缀）匹配 `Ultra_Dynamic_Sky` / `Ultra_Dynamic_Weather`，再用必需属性（`Time of Day` / `Weather`）兜底，因此改过名的子蓝图也能认出来。关卡里没有实例时找蓝图生成一个并放进 `outliner_folder`：先试默认路径 `/Game/UltraDynamicSky/Blueprints/Ultra_Dynamic_Sky`（`..._Weather`），没命中再按名字扫资产库。
 
 ## 输出
 
@@ -162,7 +178,8 @@ UE_WEATHER_RESULT={"ok":true,"tasks":[{"kind":"sky","label":"Ultra Dynamic Sky",
 
 ## 已知限制
 
-- **Ultra Dynamic Sky / Weather 是付费商城资产。** 关卡里没有实例、工程里也找不到对应蓝图时，程序会明确报错并提示用 `--sky-blueprint` / `--weather-blueprint` 指定，不会静默成功。
+- **Ultra Dynamic Sky / Weather 是付费商城资产。** 关卡里没有实例、工程里也找不到对应蓝图时，程序会明确报错提示先把它导入工程，不会静默成功。
+- 天气只能选表里那几种类型；要用自制的 `UDS_Weather_Settings` 子类，得先把它加进 `UeWeatherConfig.cpp` 的天气类型表。
 - 同一个工程同时开着多个编辑器实例时，节点选择会报错，要求只保留一个。
 - 改完 Python 远程执行配置**必须重启编辑器**才生效；`das_ue_launcher.exe` 默认不自动重启，需要时给它加 `--restart-if-needed`。
 - 只支持 Windows。

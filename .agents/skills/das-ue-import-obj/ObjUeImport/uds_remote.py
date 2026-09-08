@@ -14,22 +14,25 @@ import unreal
 
 RESULT_MARKER = "UDS_REMOTE_RESULT="
 
-# 演员种类：类名用来认，required_properties 用来在改名 / 子蓝图的情况下兜底。
+# 演员种类：类名用来认，required_properties 用来在改名 / 子蓝图的情况下兜底，
+# blueprint_paths 是商城资产的默认落点，命中就省掉一次全资产库扫描。
 ACTOR_KINDS = {
     "sky": {
         "label": "Ultra Dynamic Sky",
         "class_names": ("ultra_dynamic_sky",),
         "required_properties": ("Time of Day",),
+        "blueprint_paths": ("/Game/UltraDynamicSky/Blueprints/Ultra_Dynamic_Sky",),
     },
     "weather": {
         "label": "Ultra Dynamic Weather",
         "class_names": ("ultra_dynamic_weather",),
         "required_properties": ("Weather",),
+        "blueprint_paths": ("/Game/UltraDynamicSky/Blueprints/Ultra_Dynamic_Weather",),
     },
 }
 
-# 天气预设的锚点类名；预设资产是它的子类，放在哪个目录不固定。
-PRESET_CLASS_NAME = "uds_weather_settings"
+# 天气预设的默认目录；预设是 UDS_Weather_Settings 的子类，工程挪过目录时靠资产名兜底。
+PRESET_FOLDERS = ("/Game/UltraDynamicSky/Blueprints/Weather_Effects/Weather_Presets",)
 
 
 class UdsRemoteError(RuntimeError):
@@ -68,18 +71,11 @@ def has_properties(actor, property_names):
     return True
 
 
-def find_actor(kind, actor_hint):
-    """按对象路径 / 标签指定优先；否则先按类名精确找，再退回只看必需属性。"""
+def find_actor(kind):
+    """在关卡里找实例：先按类名精确找，再退回只看必需属性。"""
     subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
     actors = subsystem.get_all_level_actors()
     spec = ACTOR_KINDS[kind]
-
-    if actor_hint:
-        wanted = str(actor_hint).strip()
-        for actor in actors:
-            if actor.get_path_name() == wanted or actor.get_actor_label() == wanted:
-                return actor
-        raise UdsRemoteError("找不到指定的 {} 实例：{}".format(spec["label"], wanted))
 
     loose_match = None
     for actor in actors:
@@ -110,15 +106,16 @@ def asset_name_of(asset_data):
         return ""
 
 
-def find_blueprint_class(kind, blueprint_hint):
-    """找到能生成该演员的蓝图类，找不到返回 None。"""
+def find_blueprint_class(kind):
+    """找到能生成该演员的蓝图类：先试默认路径，再扫资产库按名字认，找不到返回 None。"""
     spec = ACTOR_KINDS[kind]
-    if blueprint_hint:
-        wanted = str(blueprint_hint).strip()
-        loaded = unreal.EditorAssetLibrary.load_blueprint_class(wanted)
-        if loaded is None:
-            raise UdsRemoteError("无法加载指定的蓝图：{}".format(wanted))
-        return loaded
+    for asset_path in spec["blueprint_paths"]:
+        try:
+            loaded = unreal.EditorAssetLibrary.load_blueprint_class(asset_path)
+        except Exception:
+            loaded = None
+        if loaded is not None:
+            return loaded
 
     for asset_data in iter_blueprint_assets():
         if normalize_name(asset_name_of(asset_data)) not in spec["class_names"]:
@@ -134,20 +131,18 @@ def find_blueprint_class(kind, blueprint_hint):
     return None
 
 
-def resolve_actor(kind, actor_hint, blueprint_hint, folder, created):
+def resolve_actor(kind, folder, created):
     """拿到演员：先在关卡里找，找不到就用蓝图生成一个并放进大纲目录。"""
-    actor = find_actor(kind, actor_hint)
+    actor = find_actor(kind)
     if actor is not None:
         return actor
 
     spec = ACTOR_KINDS[kind]
-    blueprint_class = find_blueprint_class(kind, blueprint_hint)
+    blueprint_class = find_blueprint_class(kind)
     if blueprint_class is None:
         raise UdsRemoteError(
             "关卡里没有 {0}，工程里也找不到它的蓝图。{0} 是付费商城资产，"
-            "请先把它导入工程，或用 --{1}-blueprint 指定蓝图路径。".format(
-                spec["label"], "sky" if kind == "sky" else "weather"
-            )
+            "请先把它导入工程。".format(spec["label"])
         )
 
     subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
@@ -166,11 +161,17 @@ def resolve_actor(kind, actor_hint, blueprint_hint, folder, created):
 
 
 def resolve_preset(asset_hint):
-    """预设可以给完整资产路径，也可以只给资产名。"""
+    """外面只给天气类型的资产名，路径在这里找：先默认目录，再扫资产库。"""
     wanted = str(asset_hint).strip()
-    value = unreal.load_asset(wanted)
+    value = None
+    for folder in PRESET_FOLDERS:
+        try:
+            value = unreal.load_asset("{}/{}".format(folder, wanted))
+        except Exception:
+            value = None
+        if value is not None:
+            break
     if value is None:
-        registry = unreal.AssetRegistryHelpers.get_asset_registry()
         for asset_data in iter_blueprint_assets():
             if asset_name_of(asset_data).lower() != wanted.lower():
                 continue
@@ -287,9 +288,7 @@ def run_task(task, folder, should_save):
         raise UdsRemoteError("未知的任务类型：{}".format(kind))
 
     created = []
-    actor = resolve_actor(
-        kind, task.get("actor_path"), task.get("blueprint_path"), folder, created
-    )
+    actor = resolve_actor(kind, folder, created)
 
     applied = []
     skipped = []
