@@ -599,11 +599,11 @@ def main():
     try:
         if not source_value:
             raise ObjImportError(
-                "环境变量 UE_OBJ_IMPORT_SOURCE 为空，请从 import_obj.bat 启动"
+                "环境变量 UE_OBJ_IMPORT_SOURCE 为空，请通过 obj_ue_import.exe 启动"
             )
         if not config_value:
             raise ObjImportError(
-                "环境变量 UE_OBJ_IMPORT_CONFIG 为空，请从 import_obj.bat 启动"
+                "环境变量 UE_OBJ_IMPORT_CONFIG 为空，请通过 obj_ue_import.exe 启动"
             )
         source_path = Path(source_value).expanduser().resolve()
         config_path = Path(config_value).expanduser().resolve()

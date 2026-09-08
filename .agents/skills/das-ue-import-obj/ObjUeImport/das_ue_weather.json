@@ -2,12 +2,7 @@
     "time": "",
     "time_of_day": null,
 
-    "preset": "",
-
-    "sky_actor": "",
-    "sky_blueprint": "",
-    "weather_actor": "",
-    "weather_blueprint": "",
+    "weather": "",
 
     "outliner_folder": "DasWeather",
     "save": false,

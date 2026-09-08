@@ -1,7 +1,7 @@
 # obj_ue_import.exe 命令行说明
 
 把一个目录里的 OBJ 批量导入 Unreal 项目，按配置批量修改导入产生的纹理属性，最后把整批静态模型汇总到一个关卡里。
-程序只启动一次 `UnrealEditor-Cmd.exe`，在同一个编辑器会话里依次跑 `import_obj.py`、`modify_texture.py`、`build_level.py`。
+程序按工程和插件模块选择一次兼容的 `UnrealEditor-*-Cmd.exe`，在同一个编辑器会话里依次跑 `import_obj.py`、`modify_texture.py`、`build_level.py`。
 
 不带下列参数启动（例如双击）会打开图形界面；带参数则是纯命令行模式，不弹窗，便于批处理。
 
@@ -9,7 +9,7 @@
 
 - 目标 Unreal 项目当前**没有被编辑器打开**，否则 commandlet 会因为文件占用失败。
 - 程序目录下存在 `das_ue_asset_path.exe`、`extern\ObjDynamicImport`（含导入脚本、普通 `DasMaterial` 与 `Weather\DasMaterial`）以及 `extern\ModifyTexture`。发布包已自带。
-- 能定位到 `UnrealEditor-Cmd.exe`，见下文「引擎定位顺序」。
+- 能定位到插件模块完整且 BuildId 匹配的 `UnrealEditor-*-Cmd.exe`，见下文「编辑器选择」。
 - 可选：程序目录下有 `metadata_coords.exe` 与 `share\proj\proj.db`（发布包已自带），用于换算 `metadata.xml` 的经纬度；缺失只会打警告，不影响导入。
 - 不需要在本机安装 Python：脚本由 Unreal 自带的 Python 执行。
 
@@ -31,7 +31,7 @@ obj_ue_import.exe --ue-import <OBJ目录> <项目.uproject> [选项]
 | `--import-config <json>` | 程序目录下的 `extern\ObjDynamicImport\import_obj.json` | 导入配置 |
 | `--texture-config <json>` | 程序目录下的 `extern\ModifyTexture\modify_texture.json` | 纹理配置 |
 | `--destination <UE目录>` | 导入配置里的 `destination_root` | 覆盖导入目标，支持 `{timestamp}`、`{date}` |
-| `--editor <路径>` | 按 `.uproject` 自动定位 | 指定 `UnrealEditor-Cmd.exe` |
+| `--editor <路径>` | 按工程与插件模块自动选择 | 指定 `UnrealEditor-*-Cmd.exe` |
 | `--ue-origin <经度,纬度,高程>` | 未指定 | UE 参考原点，经纬度单位为度、高程单位为米 |
 | `--max-texture-size <N>` | 纹理配置里的值 | `0`（不限制）或 2 的幂 |
 | `--virtual-texture <on\|off>` | 纹理配置里的值 | 虚拟纹理流送 |
@@ -67,7 +67,7 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
 
 ## 运行流程
 
-1. 校验输入、统计 `.obj` 数量、定位引擎——任何一项不通过都会在启动 Unreal 之前失败。
+1. 校验输入、统计 `.obj` 数量，按与 `das_ue_launcher.exe` 相同的规则定位引擎并选择插件兼容的 commandlet——任何一项不通过都会在启动 Unreal 之前失败。
 2. 调用同目录的 `das_ue_asset_path.exe`，同时扫描工程、项目插件与当前引擎插件，检查 `UltraDynamicWeather_Parameters`。
 3. 找到标准天气资产时启用插件、写入目录重定向并复制 `Weather\DasMaterial`；未找到时复制普通 `DasMaterial`。两者目标都是 `<项目>\Content\DasMaterial`。
 4. 按 OBJ 路径稳定排序，找到第一份 `metadata.xml` 并换算经纬度；指定 `--ue-origin` 时同时计算整批模型的 UE 偏移。结果写成 `<批次目录>\DasDataInfo\metadata.json`，见下文「批次元数据」。
@@ -76,7 +76,7 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
    - `modify_texture.json`：`content_directory` 填成同一个批次目录，纹理属性按命令行覆盖；
    - `build_level.json`：`destination_path` 填成同一个批次目录，`level_root` 填成该批次的 `DasDataInfo` 路径，`batch_timestamp` 填成本次时间戳；原点换算成功时另写入 `placement_offset`。
    出错时可以直接打开这三个文件核对实际生效的配置。
-6. 启动一次 `UnrealEditor-Cmd.exe`，依次执行导入、改纹理、建关卡，全过程日志实时转发到标准输出。
+6. 启动选中的 `UnrealEditor-*-Cmd.exe`，依次执行导入、改纹理、建关卡，全过程日志实时转发到标准输出。
 
 ## 天气材质自动选择
 
@@ -135,18 +135,21 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
 
 关卡阶段排在改纹理之后是必需的：关卡里的 Actor 会一直引用 StaticMesh、材质实例与纹理，先建关卡会让 `modify_texture.py` 的分批卸载全部落空，内存按全量纹理线性上涨。
 
-## 引擎定位顺序
+## 编辑器选择
 
-按顺序取第一个真实存在的 `UnrealEditor-Cmd.exe`：
+引擎根目录与 `das_ue_launcher.exe` 共用定位逻辑：
 
 1. `--editor` 指定的路径。
 2. 导入配置里的 `unreal_editor_cmd`（相对路径按 JSON 所在目录解析）。
 3. 由 `.uproject` 的 `EngineAssociation` 推导：
    - `{GUID}` 形式（源码构建）→ 注册表 `HKEY_CURRENT_USER\SOFTWARE\Epic Games\Unreal Engine\Builds`；
    - `5.3` 这类版本号 → `C:\ProgramData\Epic\UnrealEngineLauncher\LauncherInstalled.dat` 中 `AppName` 为 `UE_5.3` 的安装位置 → 注册表 `HKEY_LOCAL_MACHINE\SOFTWARE\EpicGames\Unreal Engine\5.3\InstalledDirectory` → `C:\Program Files\Epic Games\UE_5.3`。
-4. 从 `.uproject` 逐级向上找 `Engine\Binaries\Win64\UnrealEditor-Cmd.exe`（工程放在引擎源码树里的情况）。
+4. 从 `.uproject` 逐级向上找引擎源码树。
 
-全部落空时会报错并列出所有查找过的路径，此时用 `--editor` 显式指定。
+自动定位后读取工程 `Binaries\Win64\*.target`，检查工程和项目插件的 `.modules`、DLL
+及其与引擎的 BuildId。优先选择完整的 Development，再选择其他完整配置，并映射到同配置的
+`*-Cmd.exe`。所有配置都不完整或 commandlet 不存在时会在启动前列出每个候选的问题；不会通过
+禁用插件绕过。显式路径同样执行兼容检查。
 
 ## 配置文件里哪些字段生效
 
@@ -155,9 +158,9 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
 - `destination_root`、`asset_name_prefix`、`parent_material`、`build_static_mesh_ddc`、`import_task`、`obj_import_ui`、`static_mesh_import_data`、`texture_import_data` 等由 `import_obj.py` 使用；`build_static_mesh_ddc` 默认为 `true`；
 - `data_info_directory`（缺省 `DasDataInfo`，只能是一级目录名）是批次目录下收 `metadata.json`、批次母材质与关卡的子目录，程序与脚本读的是同一个键；
 - `batch_parent_material.enabled`（缺省 `true`）决定是否为本批次复制一份独立的母材质，`batch_parent_material.destination_root`（缺省空串 = 批次目录下的 `data_info_directory`；填绝对目录时支持 `{timestamp}` / `{date}`）是副本的存放目录。整段 `batch_parent_material` 可以省略；
-- `enabled_plugins` 拼成 `-EnablePlugins=`，`commandlet_arguments` 原样追加到命令行。程序会自动补齐缺失的 `-unattended`、`-nosplash`、`-stdout`、`-FullStdOutLogOutput`、`-UTF8Output`、`-AllowCommandletRendering`——少了前几个会看不到日志或卡在无人应答的弹窗上，少了 `-UTF8Output` 则脚本里的中文会被逐字输出成 `?`；少了 `-AllowCommandletRendering` 则 `FApp::CanEverRender()` 为 false，`UTexture::CachePlatformData` 直接跳过，纹理不会写入 DDC，编辑器下次打开会把所有纹理重建一遍（`import_obj.py` 启动时会检查这个参数，缺失直接报错）；
+- `enabled_plugins` 拼成 `-EnablePlugins=`，`commandlet_arguments` 原样追加到命令行。默认配置不再包含 `-DisablePlugins`；自定义配置显式提供时仍原样保留。程序会自动补齐缺失的 `-unattended`、`-nosplash`、`-stdout`、`-FullStdOutLogOutput`、`-UTF8Output`、`-AllowCommandletRendering`——少了前几个会看不到日志或卡在无人应答的弹窗上，少了 `-UTF8Output` 则脚本里的中文会被逐字输出成 `?`；少了 `-AllowCommandletRendering` 则 `FApp::CanEverRender()` 为 false，`UTexture::CachePlatformData` 直接跳过，纹理不会写入 DDC，编辑器下次打开会把所有纹理重建一遍（`import_obj.py` 启动时会检查这个参数，缺失直接报错）；
 - `cleanup.unload_after_import`（缺省 `true`）每导入完一批就卸载这批资产并回收内存，`cleanup.interval`（缺省 `1`）是攒多少个 OBJ 卸载一次。整段 `cleanup` 可以省略；`import_task.save=false` 时不会卸载，避免丢掉没保存的改动；
-- `project_file`、`destination_root` 与 `batch_timestamp` 每次运行都会被临时配置覆盖，改这三项对本工具无效——用位置参数和 `--destination`。
+- `project_file` 与 `batch_timestamp` 由程序写入临时配置；`destination_root` 同样会按本次参数展开，项目路径请使用位置参数，目标目录请使用 `--destination`。
 
 `modify_texture.json`：
 

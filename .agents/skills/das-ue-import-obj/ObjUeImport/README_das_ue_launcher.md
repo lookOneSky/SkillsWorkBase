@@ -80,7 +80,7 @@ UE_LAUNCH_RESULT={"process_id":1234,"project":"D:/Project/MyProject.uproject","r
 
 引擎根目录和 Editor 配置不接受外部输入。引擎定位顺序包括：`EngineAssociation` 相对目录、当前用户自定义构建注册表、Epic Launcher 安装记录、系统安装注册表、默认安装目录和工程所在源码树。
 
-新启动实例优先选择模块清单、BuildId 与 DLL 均完整的 Development；否则选择最新可用的 Editor target 配置。全部候选模块都不完整时仍尝试启动，并在日志中提示问题。
+新启动实例优先选择模块清单、BuildId 与 DLL 均完整的 Development；否则选择最新可用的 Editor target 配置。全部候选模块都不完整时仍尝试启动，并在日志中提示问题。该选择逻辑与 `obj_ue_import.exe` 共用；后者会映射到同配置的 `*-Cmd.exe`，且无人值守导入没有兼容配置时会在启动前失败。
 
 ## 退出码
 

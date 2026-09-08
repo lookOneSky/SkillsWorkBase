@@ -8,28 +8,46 @@ das-ue-weather 的 uds_common.py / ue_weather.py，改这里之前先对一遍�
 """
 
 import json
+import math
+import os
 import traceback
 
 import unreal
 
 RESULT_MARKER = "UDS_REMOTE_RESULT="
 
-# 演员种类：类名用来认，required_properties 用来在改名 / 子蓝图的情况下兜底。
+# 演员种类：类名用来认，required_properties 用来在改名 / 子蓝图的情况下兜底，
+# blueprint_paths 是商城资产的默认落点，命中就省掉一次全资产库扫描。
 ACTOR_KINDS = {
     "sky": {
         "label": "Ultra Dynamic Sky",
         "class_names": ("ultra_dynamic_sky",),
         "required_properties": ("Time of Day",),
+        "blueprint_paths": ("/Game/UltraDynamicSky/Blueprints/Ultra_Dynamic_Sky",),
     },
     "weather": {
         "label": "Ultra Dynamic Weather",
         "class_names": ("ultra_dynamic_weather",),
         "required_properties": ("Weather",),
+        "blueprint_paths": ("/Game/UltraDynamicSky/Blueprints/Ultra_Dynamic_Weather",),
     },
 }
 
-# 天气预设的锚点类名；预设资产是它的子类，放在哪个目录不固定。
-PRESET_CLASS_NAME = "uds_weather_settings"
+# 天气预设的默认目录；预设是 UDS_Weather_Settings 的子类，工程挪过目录时靠资产名兜底。
+PRESET_FOLDERS = ("/Game/UltraDynamicSky/Blueprints/Weather_Effects/Weather_Presets",)
+
+OBJ_IMPORT_ROOT = "/Game/ObjImport"
+DATA_INFO_DIRECTORY = "DasDataInfo"
+METADATA_FILE_NAME = "metadata.json"
+REAL_CELESTIAL_PROPERTIES = (
+    "Simulate Real Sun",
+    "Simulate Real Moon",
+    "Simulate Real Stars",
+    "Latitude",
+    "Longitude",
+    "Time Zone",
+    "North Yaw",
+)
 
 
 class UdsRemoteError(RuntimeError):
@@ -68,18 +86,11 @@ def has_properties(actor, property_names):
     return True
 
 
-def find_actor(kind, actor_hint):
-    """按对象路径 / 标签指定优先；否则先按类名精确找，再退回只看必需属性。"""
+def find_actor(kind):
+    """在关卡里找实例：先按类名精确找，再退回只看必需属性。"""
     subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
     actors = subsystem.get_all_level_actors()
     spec = ACTOR_KINDS[kind]
-
-    if actor_hint:
-        wanted = str(actor_hint).strip()
-        for actor in actors:
-            if actor.get_path_name() == wanted or actor.get_actor_label() == wanted:
-                return actor
-        raise UdsRemoteError("找不到指定的 {} 实例：{}".format(spec["label"], wanted))
 
     loose_match = None
     for actor in actors:
@@ -110,15 +121,16 @@ def asset_name_of(asset_data):
         return ""
 
 
-def find_blueprint_class(kind, blueprint_hint):
-    """找到能生成该演员的蓝图类，找不到返回 None。"""
+def find_blueprint_class(kind):
+    """找到能生成该演员的蓝图类：先试默认路径，再扫资产库按名字认，找不到返回 None。"""
     spec = ACTOR_KINDS[kind]
-    if blueprint_hint:
-        wanted = str(blueprint_hint).strip()
-        loaded = unreal.EditorAssetLibrary.load_blueprint_class(wanted)
-        if loaded is None:
-            raise UdsRemoteError("无法加载指定的蓝图：{}".format(wanted))
-        return loaded
+    for asset_path in spec["blueprint_paths"]:
+        try:
+            loaded = unreal.EditorAssetLibrary.load_blueprint_class(asset_path)
+        except Exception:
+            loaded = None
+        if loaded is not None:
+            return loaded
 
     for asset_data in iter_blueprint_assets():
         if normalize_name(asset_name_of(asset_data)) not in spec["class_names"]:
@@ -134,20 +146,18 @@ def find_blueprint_class(kind, blueprint_hint):
     return None
 
 
-def resolve_actor(kind, actor_hint, blueprint_hint, folder, created):
+def resolve_actor(kind, folder, created):
     """拿到演员：先在关卡里找，找不到就用蓝图生成一个并放进大纲目录。"""
-    actor = find_actor(kind, actor_hint)
+    actor = find_actor(kind)
     if actor is not None:
         return actor
 
     spec = ACTOR_KINDS[kind]
-    blueprint_class = find_blueprint_class(kind, blueprint_hint)
+    blueprint_class = find_blueprint_class(kind)
     if blueprint_class is None:
         raise UdsRemoteError(
             "关卡里没有 {0}，工程里也找不到它的蓝图。{0} 是付费商城资产，"
-            "请先把它导入工程，或用 --{1}-blueprint 指定蓝图路径。".format(
-                spec["label"], "sky" if kind == "sky" else "weather"
-            )
+            "请先把它导入工程。".format(spec["label"])
         )
 
     subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
@@ -166,11 +176,17 @@ def resolve_actor(kind, actor_hint, blueprint_hint, folder, created):
 
 
 def resolve_preset(asset_hint):
-    """预设可以给完整资产路径，也可以只给资产名。"""
+    """外面只给天气类型的资产名，路径在这里找：先默认目录，再扫资产库。"""
     wanted = str(asset_hint).strip()
-    value = unreal.load_asset(wanted)
+    value = None
+    for folder in PRESET_FOLDERS:
+        try:
+            value = unreal.load_asset("{}/{}".format(folder, wanted))
+        except Exception:
+            value = None
+        if value is not None:
+            break
     if value is None:
-        registry = unreal.AssetRegistryHelpers.get_asset_registry()
         for asset_data in iter_blueprint_assets():
             if asset_name_of(asset_data).lower() != wanted.lower():
                 continue
@@ -185,10 +201,251 @@ def resolve_preset(asset_hint):
     return value
 
 
+def obj_import_batch_from_asset_path(asset_path):
+    """从真实资产路径提取 /Game/ObjImport 下的实际批次名。"""
+    normalized = str(asset_path or "").strip().replace("\\", "/")
+    package_path = normalized.split(".", 1)[0]
+    prefix = OBJ_IMPORT_ROOT + "/"
+    if not package_path.casefold().startswith(prefix.casefold()):
+        return None
+
+    relative_path = package_path[len(prefix) :]
+    batch_name = relative_path.split("/", 1)[0].strip()
+    if not batch_name:
+        return None
+    return {
+        "name": batch_name,
+        "root": "{}/{}".format(OBJ_IMPORT_ROOT, batch_name),
+    }
+
+
+def current_world_obj_import_batch():
+    """当前关卡本身位于 ObjImport 批次内时，优先用它消除多批次歧义。"""
+    try:
+        subsystem = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem)
+        world = subsystem.get_editor_world()
+        if world is not None:
+            return obj_import_batch_from_asset_path(world.get_path_name())
+    except Exception:
+        pass
+    return None
+
+
+def actor_folder_path(actor):
+    try:
+        return str(actor.get_folder_path())
+    except Exception:
+        return ""
+
+
+def static_meshes_of_actor(actor):
+    """兼容 StaticMeshActor 与带 StaticMeshComponent 的自定义 Actor。"""
+    components = []
+    try:
+        component = actor.get_editor_property("static_mesh_component")
+        if component is not None:
+            components.append(component)
+    except Exception:
+        pass
+    try:
+        components.extend(actor.get_components_by_class(unreal.StaticMeshComponent))
+    except Exception:
+        pass
+
+    meshes = []
+    mesh_paths = set()
+    for component in components:
+        try:
+            static_mesh = component.get_editor_property("static_mesh")
+        except Exception:
+            continue
+        if static_mesh is None:
+            continue
+        mesh_path = static_mesh.get_path_name()
+        if mesh_path in mesh_paths:
+            continue
+        mesh_paths.add(mesh_path)
+        meshes.append(static_mesh)
+    return meshes
+
+
+def collect_obj_import_batches():
+    """由当前数据大纲里的 StaticMesh 真实资产路径反查导入批次。"""
+    subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    batches = {}
+    for level_actor in subsystem.get_all_level_actors():
+        folder_path = actor_folder_path(level_actor)
+        for static_mesh in static_meshes_of_actor(level_actor):
+            static_mesh_path = static_mesh.get_path_name()
+            batch = obj_import_batch_from_asset_path(static_mesh_path)
+            if batch is None:
+                continue
+            batch_key = batch["root"].casefold()
+            if batch_key not in batches:
+                batches[batch_key] = {
+                    "name": batch["name"],
+                    "root": batch["root"],
+                    "folder": folder_path,
+                    "static_mesh": static_mesh_path,
+                }
+    return batches
+
+
+def select_current_obj_import_batch():
+    batches = collect_obj_import_batches()
+    if not batches:
+        raise UdsRemoteError(
+            "当前关卡的数据大纲里没有引用 /Game/ObjImport 的 StaticMesh，"
+            "无法确定真实天体模拟原点。"
+        )
+
+    world_batch = current_world_obj_import_batch()
+    if world_batch is not None:
+        world_key = world_batch["root"].casefold()
+        if world_key in batches:
+            return batches[world_key]
+        raise UdsRemoteError(
+            "当前 ObjImport 关卡属于批次 {}，但数据大纲中的 StaticMesh 不属于该批次。".format(
+                world_batch["name"]
+            )
+        )
+
+    if len(batches) == 1:
+        return next(iter(batches.values()))
+
+    batch_names = sorted(batch["name"] for batch in batches.values())
+    raise UdsRemoteError(
+        "当前关卡包含多个 ObjImport 批次，无法确定真实天体模拟原点：{}".format(
+            "、".join(batch_names)
+        )
+    )
+
+
+def metadata_file_for_batch(batch):
+    content_directory = unreal.Paths.convert_relative_path_to_full(
+        unreal.Paths.project_content_dir()
+    )
+    relative_batch = batch["root"][len("/Game/") :]
+    return os.path.normpath(
+        os.path.join(
+            content_directory,
+            *relative_batch.split("/"),
+            DATA_INFO_DIRECTORY,
+            METADATA_FILE_NAME
+        )
+    )
+
+
+def finite_coordinate(value, field_name, minimum, maximum, metadata_file):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise UdsRemoteError(
+            "{} 的 {} 不是有效数值：{}".format(metadata_file, field_name, value)
+        )
+    coordinate = float(value)
+    if not math.isfinite(coordinate) or coordinate < minimum or coordinate > maximum:
+        raise UdsRemoteError(
+            "{} 的 {} 超出范围 [{}, {}]：{}".format(
+                metadata_file, field_name, minimum, maximum, value
+            )
+        )
+    return coordinate
+
+
+def read_batch_real_origin(batch):
+    metadata_file = metadata_file_for_batch(batch)
+    try:
+        with open(metadata_file, "r", encoding="utf-8-sig") as stream:
+            document = json.load(stream)
+    except (OSError, ValueError) as error:
+        raise UdsRemoteError(
+            "无法读取对应 ObjImport 批次的 {}：{}".format(metadata_file, error)
+        )
+    if not isinstance(document, dict):
+        raise UdsRemoteError("{} 的 JSON 根节点不是对象。".format(metadata_file))
+
+    destination_path = document.get("destination_path")
+    if (
+        isinstance(destination_path, str)
+        and destination_path.strip()
+        and destination_path.strip().rstrip("/").casefold() != batch["root"].casefold()
+    ):
+        raise UdsRemoteError(
+            "{} 记录的 destination_path 与当前 StaticMesh 批次不一致：{}".format(
+                metadata_file, destination_path
+            )
+        )
+
+    metadata_entries = document.get("metadata")
+    if not isinstance(metadata_entries, list) or not metadata_entries:
+        raise UdsRemoteError("{} 没有 metadata 经纬度记录。".format(metadata_file))
+    origin = metadata_entries[0]
+    if not isinstance(origin, dict):
+        raise UdsRemoteError("{} 的第一条 metadata 记录不是对象。".format(metadata_file))
+
+    return {
+        "latitude": finite_coordinate(
+            origin.get("latitude"), "latitude", -90.0, 90.0, metadata_file
+        ),
+        "longitude": finite_coordinate(
+            origin.get("longitude"), "longitude", -180.0, 180.0, metadata_file
+        ),
+        "metadata_file": metadata_file,
+    }
+
+
+def initialize_real_celestial_from_obj_import(actor, applied, skipped):
+    """Sun 已开启代表用户配置过；否则一次性初始化整组真实天体参数。"""
+    try:
+        real_sun_enabled = bool(actor.get_editor_property("Simulate Real Sun"))
+    except Exception as error:
+        raise UdsRemoteError("读取 Simulate Real Sun 失败：{}".format(error))
+    if real_sun_enabled:
+        skipped.append("真实 Sun 模拟已开启，保留用户调整过的天体配置")
+        return
+
+    # 先检查 UDS 版本与原点数据，所有前置条件满足后才开始写 Actor。
+    for property_name in REAL_CELESTIAL_PROPERTIES[1:]:
+        try:
+            actor.get_editor_property(property_name)
+        except Exception as error:
+            raise UdsRemoteError("读取 {} 失败：{}".format(property_name, error))
+    batch = select_current_obj_import_batch()
+    origin = read_batch_real_origin(batch)
+
+    values = (
+        ("Latitude", origin["latitude"]),
+        ("Longitude", origin["longitude"]),
+        ("Time Zone", 8.0),
+        ("North Yaw", 270.0),
+        ("Simulate Real Moon", True),
+        ("Simulate Real Stars", True),
+        # Sun 最后写；中途失败时下次设置时间仍会重新完成初始化。
+        ("Simulate Real Sun", True),
+    )
+    for property_name, value in values:
+        try:
+            actor.set_editor_property(property_name, value)
+        except Exception as error:
+            raise UdsRemoteError("写属性 {} 失败：{}".format(property_name, error))
+        applied.append("{}={}".format(property_name, value))
+    applied.append(
+        "真实天体来源={}，大纲目录={}，StaticMesh={}，metadata={}".format(
+            batch["name"],
+            batch["folder"] or "<根目录>",
+            batch["static_mesh"],
+            origin["metadata_file"],
+        )
+    )
+
+
 def apply_step(actor, step, applied, skipped):
     operation = step.get("op")
     name = step.get("name")
     optional = bool(step.get("optional"))
+
+    if operation == "initialize_real_celestial_from_obj_import":
+        initialize_real_celestial_from_obj_import(actor, applied, skipped)
+        return
 
     if operation == "property":
         try:
@@ -287,9 +544,7 @@ def run_task(task, folder, should_save):
         raise UdsRemoteError("未知的任务类型：{}".format(kind))
 
     created = []
-    actor = resolve_actor(
-        kind, task.get("actor_path"), task.get("blueprint_path"), folder, created
-    )
+    actor = resolve_actor(kind, folder, created)
 
     applied = []
     skipped = []

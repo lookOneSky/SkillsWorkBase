@@ -1,6 +1,4 @@
 {
-  "project_file": "E:/CodeAll/DasLMSK/DasLMSK_ObjImport.uproject",
-  "unreal_editor_cmd": "../../../Binaries/Win64/UnrealEditor-Cmd.exe",
   "enabled_plugins": [
     "PythonScriptPlugin",
     "EditorScriptingUtilities"
@@ -10,7 +8,6 @@
     "-nop4",
     "-nosplash",
     "-AllowCommandletRendering",
-    "-DisablePlugins=DasApplication,CesiumForUnreal,DasAssetLibrary,DasUnreal,DasPixel,PixelStreaming",
     "-stdout",
     "-FullStdOutLogOutput"
   ],
