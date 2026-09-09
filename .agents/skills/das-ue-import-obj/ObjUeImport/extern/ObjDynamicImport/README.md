@@ -35,6 +35,10 @@ UE Python 对象。
    关掉这项时内存会随 OBJ 数量线性上涨。`import_task.save=false` 时不会卸载，避免丢掉没保存的改动。
 8. 其余 `import_task`、`obj_import_ui`、`static_mesh_import_data` 和 `texture_import_data` 项均直接映射
    UE Python 属性。
+9. OBJ 文件名中的数字负号会编码为 `neg`，数字正号仍按原规则省略。例如
+   `Tile_+0000_-0010.obj` 会生成 `SM_Tile_0000_neg0010`，而
+   `Tile_+0000_+0010.obj` 仍生成 `SM_Tile_0000_0010`。导入前会检查清洗后的静态模型资产名，
+   如仍有重名则在逐个导入 OBJ 前中止并列出冲突文件。
 
 OBJ/MTL 常用映射：
 
@@ -99,28 +103,6 @@ das_ue_launcher.exe --ue-launch "D:\Project\MyProject.uproject"
 
 必须排在改纹理之后：关卡 Actor 会一直引用网格、材质与纹理，先建关卡会让
 `modify_texture.py` 的 `UnloadPackages` 全部落空。
-
-## 30 秒日出序列（create_sunrise_sequence.py）
-
-在已打开批次关卡的 Unreal Editor 中执行脚本，会覆盖生成
-`/Game/Cinematics/LS_Auto`，随后打开并播放。脚本只把数据大纲 `DasImport`
-及其子目录的 Actor 作为模型输入，按总包围盒自动计算相机高度和取景距离。
-
-固定时间线为：0～8 秒原位等待日出，8～14 秒第一次拉远，14～24 秒缓慢抬镜
-正对太阳，24～30 秒第二次拉远。相机位于模型最高点上方、朝世界 `+X`；由于
-所有模型包围盒都在相机下方，地平线太阳不会被这些模型遮挡。
-
-有关卡内 Ultra Dynamic Sky 时，脚本会采样主太阳 Directional Light，二分求出
-太阳穿过地平线的 `Time of Day`，并生成时间轨道；无法采样时回退到 06:00。
-没有 Ultra Dynamic Sky 时，直接为主太阳 Directional Light 生成固定旋转轨道。
-脚本会关闭 UDS 的自动时间、随机时间和系统时间，并把 `North Yaw` 固定为 270°，
-保证序列接管时间且日出方向为 `+X`。
-
-可从编辑器的 Python 控制台执行：
-
-```python
-exec(open(r"D:\Tools\extern\ObjDynamicImport\create_sunrise_sequence.py", encoding="utf-8").read())
-```
 
 ## 源码依据
 

@@ -91,7 +91,7 @@ UDS 也可以位于插件子目录，例如标志资产为 `/DasAssetLibrary/Ult
 
 以下情况使用普通材质继续导入：没有标志资产、只有同名但目录结构不兼容的资产。检测 EXE 缺失、执行失败、输出损坏或出现多个兼容天气资产根目录属于检测失败，会终止导入。
 
-导入结果默认落在 `/Game/ObjImport/<YYYYMMDD_HHMMSS>`，对应物理目录 `<项目>\Content\ObjImport\<YYYYMMDD_HHMMSS>`；静态模型前缀 `SM_`。每个 OBJ 导入后会等待 StaticMesh 构建及 DDC 写入完成，再保存资产。
+导入结果默认落在 `/Game/ObjImport/<YYYYMMDD_HHMMSS>`，对应物理目录 `<项目>\Content\ObjImport\<YYYYMMDD_HHMMSS>`；静态模型前缀 `SM_`。文件名中的数字负号编码为 `neg`，数字正号仍按原规则省略（例如 `Tile_+0000_-0010.obj` -> `SM_Tile_0000_neg0010`）。工具会在导入前检查最终静态模型资产名是否重复，避免 `replace_existing=true` 静默覆盖。每个 OBJ 导入后会等待 StaticMesh 构建及 DDC 写入完成，再保存资产。
 
 ## 批次元数据（DasDataInfo）
 

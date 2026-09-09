@@ -104,8 +104,11 @@ def _register_legacy_material_mount():
 
 
 def _sanitize_asset_name(value):
+    # UE 会把符号折叠成下划线。先保留数字负号的语义，避免 +0010 与
+    # -0010 最终生成同名资产；正号继续沿用原规则，不改变已有正数资产名。
+    value = re.sub(r"-(?=\d)", "neg", value.strip())
     characters = []
-    for character in value.strip():
+    for character in value:
         characters.append(character if character.isalnum() or character == "_" else "_")
     name = re.sub(r"_+", "_", "".join(characters)).strip("_")
     if not name:
@@ -113,6 +116,38 @@ def _sanitize_asset_name(value):
     if name[0].isdigit():
         name = "Mesh_" + name
     return name
+
+
+def _asset_name_for_source(source_file, config):
+    source_stem = _sanitize_asset_name(source_file.stem)
+    asset_prefix = config.get("asset_name_prefix", "")
+    if not isinstance(asset_prefix, str):
+        raise ObjImportError("asset_name_prefix 必须是字符串")
+    return _sanitize_asset_name(asset_prefix + source_stem)
+
+
+def _validate_unique_asset_names(source_files, config):
+    assets_by_name = {}
+    conflicts = []
+    for source_file in source_files:
+        asset_name = _asset_name_for_source(source_file, config)
+        name_key = asset_name.casefold()
+        previous_file = assets_by_name.get(name_key)
+        if previous_file is None:
+            assets_by_name[name_key] = source_file
+            continue
+        conflicts.append((asset_name, previous_file, source_file))
+
+    if not conflicts:
+        return
+
+    details = "\n".join(
+        "  {} <- {} | {}".format(asset_name, first_file, second_file)
+        for asset_name, first_file, second_file in conflicts
+    )
+    raise ObjImportError(
+        "多个 OBJ 会生成同名 Unreal 资产，已在导入前中止：\n{}".format(details)
+    )
 
 
 def _normalize_game_directory(value, batch_timestamp):
@@ -497,11 +532,7 @@ def _wait_for_static_mesh_derived_data(static_meshes):
 
 
 def _run_import(source_file, config, destination_path, parent_path, collect_packages):
-    source_stem = _sanitize_asset_name(source_file.stem)
-    asset_prefix = config.get("asset_name_prefix", "")
-    if not isinstance(asset_prefix, str):
-        raise ObjImportError("asset_name_prefix 必须是字符串")
-    asset_name = _sanitize_asset_name(asset_prefix + source_stem)
+    asset_name = _asset_name_for_source(source_file, config)
 
     validate_parameters = _validate_boolean_config(
         config, "validate_parent_material_parameters", True
@@ -625,6 +656,7 @@ def main():
         else:
             raise ObjImportError("OBJ 输入路径无效：{}".format(source_path))
         config = _load_json(config_path)
+        _validate_unique_asset_names(source_files, config)
         unload_after_import, cleanup_interval = _load_cleanup_config(config)
         _require_commandlet_rendering()
         _register_legacy_material_mount()
