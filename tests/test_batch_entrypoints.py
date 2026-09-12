@@ -7,6 +7,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BATCH_FILES = (
     ROOT / "DeploySkills.bat",
+    ROOT / "DeploySpatialMindMCPSkills.bat",
+    ROOT / "ClaudeSkill部署.bat",
+    ROOT / "Skill一键部署.bat",
+)
+COMPATIBILITY_BATCH_FILES = (
     ROOT / "ClaudeSkill部署.bat",
     ROOT / "Skill一键部署.bat",
 )
@@ -19,7 +24,7 @@ class BatchEntrypointTests(unittest.TestCase):
             self.assertNotIn(b"\n", data.replace(b"\r\n", b""), path.name)
 
     def test_compatibility_entrypoints_call_ascii_main_file(self) -> None:
-        for path in BATCH_FILES[1:]:
+        for path in COMPATIBILITY_BATCH_FILES:
             content = path.read_text(encoding="utf-8")
             self.assertIn("DeploySkills.bat", content)
 

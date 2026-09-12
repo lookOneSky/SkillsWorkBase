@@ -13,6 +13,7 @@ REPOSITORY_URL = "https://github.com/lookOneSky/SkillsWorkBase.git"
 REPOSITORY_DIR = Path.home() / "SkillsWorkBase"
 GIT_PROXY = "http://127.0.0.1:10808"
 DEPLOY_SCRIPT = Path("scripts") / "deploy_claude_skills.py"
+MCP_DEPLOY_SCRIPT = Path("scripts") / "deploy_spatialmind_mcp_skills.py"
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -48,11 +49,17 @@ def deploy(repository_dir: Path) -> None:
     if not deploy_script.is_file():
         raise FileNotFoundError(f"未找到部署入口：{deploy_script}")
 
+    mcp_deploy_script = repository_dir / MCP_DEPLOY_SCRIPT
+    if not mcp_deploy_script.is_file():
+        raise FileNotFoundError(f"未找到 MCP 部署入口：{mcp_deploy_script}")
+
     print("正在非交互部署 Claude/Codex/WorkBuddy/SpatialMind Skills")
     run(
         [sys.executable, str(deploy_script), "--action", "install"],
         cwd=repository_dir,
     )
+    print("正在将 MCP 专用 Skills 部署到 SpatialMind")
+    run([sys.executable, str(mcp_deploy_script)], cwd=repository_dir)
 
 
 def parse_args() -> argparse.Namespace:

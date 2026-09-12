@@ -6,12 +6,13 @@
 
 ## 使用
 
-双击程序打开 Qt 图形界面：选 `.uproject`，填要修改的时间、选择天气类型，再点“设置时间 / 天气”。时间或天气留空时保持原样。
+双击程序打开 Qt 图形界面：选 `.uproject`，填写时间或勾选“使用当前关卡位置的今日日出时间”，选择天气类型，再点“设置时间 / 天气”。时间或天气留空时保持原样。
 
 命令行模式：
 
 ```powershell
 & "das_ue_weather.exe" --ue-weather "D:\Proj\My.uproject" --time 09:30 | Tee-Object -FilePath "$env:TEMP\weather.log"
+& "das_ue_weather.exe" --ue-weather "D:\Proj\My.uproject" --sunrise | Tee-Object -FilePath "$env:TEMP\weather.log"
 & "das_ue_weather.exe" --ue-weather "D:\Proj\My.uproject" --weather rain --save | Tee-Object -FilePath "$env:TEMP\weather.log"
 ```
 
@@ -25,8 +26,9 @@
 
 | 选项 | 说明 |
 | --- | --- |
-| `--time <HH:MM[:SS]>` | 设置 UDS 的时间，与 `--time-of-day` 互斥 |
+| `--time <HH:MM[:SS]>` | 设置 UDS 的时间，与 `--time-of-day`、`--sunrise` 互斥 |
 | `--time-of-day <0-2400>` | 直接写 UDS 原始刻度 |
+| `--sunrise` | 读取当前关卡经纬度和时区，用共享 C++ 算法设置今日日出时间 |
 | `--weather <类型>` | 天气类型，写它会先清掉全部手动覆盖开关 |
 | `--config <json>` | 配置文件，缺省用随程序的 `das_ue_weather.json` |
 | `--outliner-folder <名字>` | 新建 Actor 的数据大纲目录，缺省 `DasWeather` |
@@ -79,9 +81,13 @@ total = (小时 + 分钟 / 60 + 秒 / 3600) * 100
 
 程序会顺带读回 `Animate Time of Day`、`Randomize Time Of Day`、`Use System Time` 三个开关，只读不写；其中任何一个开着都会让写进去的时间继续被覆盖，日志里会明确提示。
 
-每次设置时间还会检查 `Simulate Real Sun`。如果它为 `false`，程序会从当前关卡数据大纲里的 StaticMesh 真实资产路径识别 `/Game/ObjImport/<实际批次名>`，读取同批次物理目录 `DasDataInfo/metadata.json` 第一条记录的 `latitude` / `longitude`，随后设置 `Latitude`、`Longitude`、`Time Zone=8.0`、`North Yaw=270.0` 并开启 `Simulate Real Sun`、`Simulate Real Moon`、`Simulate Real Stars`。如果 `Simulate Real Sun` 已为 `true`，说明用户已经配置过，程序会明确记录“已跳过”并保留整组天体设置。
+`--sunrise` 先读取 UDS 当前有效的 `Latitude`、`Longitude`、`Time Zone`；真实 Sun 尚未启用时，改用当前 ObjImport 批次元数据和东八区。随后由 `src/core/SunriseCalculator.cpp` 按当天日期计算，算法与日出关卡序列完全共用。没有读到有效经纬度、时区，或当前位置当天无法算出日出时，会明确记录原因并回退到 `06:00`，不会让整次调用失败。日出模式会把 UDS 的 `Year`、`Month`、`Day` 同步为当天，并关闭会覆盖结果的 `Use System Time` / `True Real Time`、时间动画、随机时间、手动太阳目标和夏令时。
 
-当前关卡出现多个无法由关卡路径消除歧义的 ObjImport 批次、没有 ObjImport StaticMesh、缺少对应 JSON，或经纬度无效时，时间设置会失败并指出具体原因，避免把天空配置到错误位置。
+NOAA 的天文日出定义是太阳上边缘经大气折射后刚接触地平线，此时太阳中心仍低于地平线；UDS 自身又使用近似算法。为了让编辑器预览中能明确看到太阳盘，实际写入 UDS 的时间为天文日出后 10 分钟，结果 JSON 同时返回 `astronomical_time_of_day`、最终 `time_of_day` 和 `visibility_offset_minutes`。
+
+每次设置时间还会检查 `Simulate Real Sun`。如果它为 `false`，程序会从当前关卡数据大纲里的 StaticMesh 真实资产路径识别 `/Game/ObjImport/<实际批次名>`，读取同批次物理目录 `DasDataInfo/metadata.json` 第一条记录的 `latitude` / `longitude`，随后设置 `Latitude`、`Longitude`、`Time Zone=8.0`、`North Yaw=270.0` 并开启 `Simulate Real Sun`、`Simulate Real Moon`、`Simulate Real Stars`。如果没有读到位置数据，会保留现有天体配置并继续设置时间和天气；如果 `Simulate Real Sun` 已为 `true`，也会明确记录“已跳过”并保留整组天体设置。只设置天气预设时不会读取经纬度。
+
+当前关卡出现多个无法由关卡路径消除歧义的 ObjImport 批次、没有 ObjImport StaticMesh、缺少对应 JSON，或经纬度无效时，程序会在 `skipped` / `sunrise.fallback_reason` 中指出原因，并跳过真实天体初始化；本次固定时间和天气设置仍会继续执行。
 
 ## 天气预设
 
@@ -95,6 +101,7 @@ total = (小时 + 分钟 / 60 + 秒 / 3600) * 100
 {
     "time": "",
     "time_of_day": null,
+    "sunrise": false,
 
     "weather": "",
 
@@ -104,7 +111,7 @@ total = (小时 + 分钟 / 60 + 秒 / 3600) * 100
 }
 ```
 
-`time` 与 `time_of_day` 互斥；命令行给了其中一个时，会自动清掉配置文件里的另一个，不会撞上互斥校验。`save` 只能被 `--save` 开成 `true`（没有 `--no-save`）。
+`time`、`time_of_day` 与 `sunrise` 三者互斥；命令行给了其中一个时，会自动清掉配置文件里的另外两个，不会撞上互斥校验。`save` 只能被 `--save` 开成 `true`（没有 `--no-save`）。
 
 旧配置中数值天气键为 `null` 时仍可正常读取；如果它们和 `weather` 一起出现，程序只使用天气类型并忽略数值。单独填数值会报“数值天气设置暂不对外开放”。
 
@@ -114,7 +121,7 @@ total = (小时 + 分钟 / 60 + 秒 / 3600) * 100
 2. 起 `das_ue_launcher.exe --ue-launch <项目>` 拿实例，它顺带把 Python 远程执行配好；从它的 `UE_LAUNCH_RESULT=` 里取组播端点与绑定地址。
    - launcher 报 `restart_required` 时本程序直接失败，提示先重启编辑器；
    - launcher 是无限等待的，界面上点“停止”只会结束这个直接子进程，不会关闭已经启动的编辑器。
-3. 把载荷 `uds_remote.py` 与计划 `uds_plan.json` 写到 `%TEMP%\DasUeWeather\<时间戳>\`。
+3. 把载荷 `uds_remote.py` 与计划 `uds_plan.json` 写到 `%TEMP%\DasUeWeather\<时间戳>\`；日出模式先读取计算参数，由 EXE 调共享 C++ 计算器后再写入最终计划。
 4. UDP 组播发现节点 → 按工程根目录（回退工程名）挑出属于本项目的那个 → 本地开 TCP 端口，广播 `open_connection` 等编辑器回连。
 5. 发一行引导语句执行载荷；时间任务先按上述规则初始化或保留真实天体模拟，再设置 `Time of Day`，最后从返回的 `output` 里取 `UDS_REMOTE_RESULT=`。
 6. 打印每一项的写入结果，输出 `UE_WEATHER_RESULT=`，清理临时目录。
@@ -152,7 +159,7 @@ UE_WEATHER_RESULT={"ok":true,"tasks":[{"kind":"sky","label":"Ultra Dynamic Sky",
 - 同一个工程同时开着多个编辑器实例时，节点选择会报错，要求只保留一个。
 - 改完 Python 远程执行配置**必须重启编辑器**才生效；`das_ue_launcher.exe` 默认不自动重启，需要时给它加 `--restart-if-needed`。
 - 只支持 Windows。
-- 不自动修改日期、时区或季节；经纬度只在真实 Sun 尚未开启时从当前 ObjImport 批次初始化一次。
+- 普通时间模式不修改 UDS 的日期、时区或季节；日出模式会同步 UDS 日期为 EXE 运行当天。经纬度只在真实 Sun 尚未开启时从当前 ObjImport 批次初始化一次。
 
 ## 源码依据
 

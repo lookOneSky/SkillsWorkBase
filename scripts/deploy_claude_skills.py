@@ -120,7 +120,13 @@ def remove_legacy_install(name: str, target_root: Path, product: str) -> None:
     print(f"已清理 {product} 旧版无前缀目录：{legacy}")
 
 
-def install_to(name: str, source: Path, target_root: Path, product: str) -> None:
+def install_to(
+    name: str,
+    source: Path,
+    target_root: Path,
+    product: str,
+    ignored_root_names: frozenset[str] = frozenset(),
+) -> None:
     target_root.mkdir(parents=True, exist_ok=True)
     target = target_root / name
     staging = target_root / f".{name}.tmp-{uuid.uuid4().hex}"
@@ -129,12 +135,10 @@ def install_to(name: str, source: Path, target_root: Path, product: str) -> None
 
     def ignore(directory: str, names: list[str]) -> set[str]:
         ignored = {item for item in names if item == "__pycache__" or item.endswith(".pyc")}
-        if (
-            product != "Codex"
-            and Path(directory).resolve() == source_resolved
-            and "agents" in names
-        ):
-            ignored.add("agents")
+        if Path(directory).resolve() == source_resolved:
+            ignored.update(item for item in names if item in ignored_root_names)
+            if product != "Codex" and "agents" in names:
+                ignored.add("agents")
         return ignored
 
     shutil.copytree(source, staging, ignore=ignore)

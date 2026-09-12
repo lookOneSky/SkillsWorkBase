@@ -1,0 +1,4 @@
+interface:
+  display_name: "Unreal 时间与天气"
+  short_description: "通过 MCP 设置编辑器内 UDS 时间与 UDW 天气预设"
+  default_prompt: "使用 $das-ue-weather 设置当前 Unreal 项目的时间或天气。"

@@ -7,5 +7,5 @@ user-invocable: false
 # Das Skills 更新
 
 - 使用 Python 3 执行本文件同级的 `update_skills.py`。
-- 脚本默认在 `%USERPROFILE%\SkillsWorkBase` 克隆或快进更新仓库，再使用当前 Python 直接执行 `scripts/deploy_claude_skills.py --action install`，将共享 Skill 部署到 Claude、Codex、WorkBuddy 与 SpatialMind，全程不等待菜单输入。
+- 脚本默认在 `%USERPROFILE%\SkillsWorkBase` 克隆或快进更新仓库，先使用当前 Python 执行 `scripts/deploy_claude_skills.py --action install`，将共享 Skill 部署到 Claude、Codex、WorkBuddy 与 SpatialMind，再执行 `scripts/deploy_spatialmind_mcp_skills.py`，用 `.agents/skills/MCP` 中的专用版本更新 SpatialMind，全程不等待菜单输入。
 - 保留本地修改；脚本失败时报告原始错误，不要强制重置或继续部署。
