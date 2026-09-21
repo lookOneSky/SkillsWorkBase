@@ -624,7 +624,9 @@ def _run_import(source_file, config, destination_path, parent_path, collect_pack
     return _collect_packages(imported_objects)
 
 
-def main():
+def main(import_runner=None):
+    if import_runner is None:
+        import_runner = _run_import
     source_value = os.environ.get("UE_OBJ_IMPORT_SOURCE", "")
     config_value = os.environ.get("UE_OBJ_IMPORT_CONFIG", "")
     try:
@@ -677,7 +679,7 @@ def main():
         pending_packages = []
         for index, source_file in enumerate(source_files, start=1):
             pending_packages.extend(
-                _run_import(
+                import_runner(
                     source_file, config, destination_path, parent_path, unload_after_import
                 )
             )

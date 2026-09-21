@@ -2,7 +2,7 @@
 
 输入一个 `.uproject`，为该项目开启 Python 远程执行，再获取它已经运行的交互式 Unreal Editor；没有实例时自动启动编辑器。程序会等待 `UnrealWindow` 主窗口就绪，然后把实例信息写入项目目录下的 `DasUESkill.json`。
 
-缓存只保存实例，不扫描、不记录关卡或其他编辑器状态。
+缓存保存实例 PID，并允许天气工具在同一 JSON 中记录项目场景经纬度。Launcher 不扫描关卡，刷新 PID 时会保留这些扩展字段。
 
 ## 使用
 
@@ -51,15 +51,17 @@ das_ue_launcher.exe --ue-launch "D:\Project\MyProject.uproject" -- -log
 
 ```json
 {
-  "process_id": 1234
+  "process_id": 1234,
+  "latitude": 39.9042,
+  "longitude": 116.4074
 }
 ```
 
-缓存固定生成在 `.uproject` 所在目录，**只有一个正整数 `process_id`**，不包含项目、引擎、配置、来源、时间或关卡状态等其他信息。加了自动配置之后这一点也没变。
+缓存固定生成在 `.uproject` 所在目录。`process_id` 是 Launcher 维护的正整数；`latitude`、`longitude` 是天气工具维护的可选成对字段。Launcher 采用读—改—原子写刷新 PID，并保留经纬度及未来扩展字段。旧版只有 `process_id` 的缓存继续兼容。
 
 ## UE_LAUNCH_RESULT
 
-命令行成功时最后输出单行 JSON。它是缓存的**超集**：除了 `process_id`，还带上本次运行才知道的远程执行信息，供 `das_ue_weather.exe` 直接拿来接入编辑器，省得再去解析一遍 INI。
+命令行成功时最后输出单行 JSON。结果包含 `process_id` 以及本次运行才知道的远程执行信息，供 `das_ue_weather.exe` 直接接入编辑器；项目缓存中的场景经纬度不重复写入该结果。
 
 ```text
 UE_LAUNCH_RESULT={"process_id":1234,"project":"D:/Project/MyProject.uproject","remote_execution":{"enabled":true,"multicast_bind_address":"127.0.0.1","multicast_group_endpoint":"239.0.0.1:6766","multicast_ttl":0,"plugin_enabled":true},"restart_required":false}

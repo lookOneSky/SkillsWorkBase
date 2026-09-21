@@ -1,14 +1,15 @@
 # OBJ 动态导入
 
-`import_obj.py` 是 `obj_ue_import.exe` 通过 `PythonScriptCommandlet` 执行的 UE 侧载荷，
+`import_obj_interchange.py` 是 `obj_ue_import.exe` 通过 `PythonScriptCommandlet` 执行的 UE 侧载荷，
 将单个 OBJ 或目录内的全部 OBJ 及其引用的 MTL、纹理导入项目 Content。一次运行只创建一个
-时间批次目录，所有瓦块资产直接存放在该目录内。程序会先检测工程与引擎插件中的
-Ultra Dynamic Weather 标志资产：命中标准目录则复制 `Weather/DasMaterial` 并配置插件与
-Core Redirect，否则复制普通 `DasMaterial`。
+时间批次目录，所有瓦块资产直接存放在该目录内。新版在普通 `DasMaterialObj` 与天气版
+`Weather/DasMaterialObj` 之间选择，并统一复制到项目 `Content/DasMaterialObj`；命中标准
+Ultra Dynamic Weather 目录时还会配置插件与 Core Redirect。旧 `DasMaterial`、
+`Weather/DasMaterial` 与 `import_obj.py` 均继续随包保留，供旧版流程使用。
 
-UE 5.3 默认使用 Interchange 导入 OBJ。为了支持自定义母材质和纹理参数名，本工具显式使用同样支持 OBJ 的旧版
-`FbxFactory`；JSON 中的 `obj_import_ui`、`static_mesh_import_data` 和 `texture_import_data` 会直接写入对应
-UE Python 对象。
+运行时固定使用 Interchange 导入 OBJ，并把源材质导入成指定 `parent_material` 的材质实例。传统 OBJ/MTL
+的 `map_Kd` 由 UE 映射到固定纹理参数 `DiffuseColorMap`；母材质必须提供该参数，配置文件不再支持替换参数名。
+原来的 `import_obj.py` 与 `FbxFactory` 导入实现仍保留，但启动器不再调用，也没有运行时切换入口。
 
 ## 配置
 
@@ -16,16 +17,16 @@ UE Python 对象。
 
 1. `destination_root` 默认是 `/Game/ObjImport/{timestamp}`，`{timestamp}` 会在每次运行开始时替换为
    `YYYYMMDD_HHMMSS`，对应项目物理目录 `Content/ObjImport/YYYYMMDD_HHMMSS`。
-2. `parent_material` 默认是复制后的 `/Game/DasMaterial/MI_Model.MI_Model`。
+2. `parent_material` 默认是复制后的 `/Game/DasMaterialObj/MI_Model.MI_Model`。
    `batch_parent_material.enabled` 默认 `true`，会在导入开始前把它复制成
    `<批次目录>/<data_info_directory>/MI_Model_<时间戳>`（`data_info_directory` 缺省 `DasDataInfo`，
    与 `obj_ue_import.exe` 写的 `metadata.json` 和批次关卡同一个目录，删批次目录时一起删干净），
    本批次的材质实例全部挂到这份副本上，调参不影响历史批次。改成 `false` 则所有批次共用同一个母材质；
    给 `batch_parent_material.destination_root` 填绝对目录（支持 `{timestamp}` / `{date}`）则放到批次目录外。
    `batch_timestamp` 由 `obj_ue_import.exe` 下发，保证副本与批次目录、批次关卡带同一个时间戳。
-3. `texture_import_data` 中非空的参数名必须存在于母材质。`base_emmisive_texture_name` 的 `emmisive`
-   拼写来自 UE 5.3 属性名，请勿改为 `emissive`。
-4. `material_search_location=DO_NOT_SEARCH` 可避免复用同名旧材质，保证按 `parent_material` 新建材质实例。
+3. `validate_parent_material_parameters=true` 时，导入前校验母材质必须提供纹理参数
+   `DiffuseColorMap`。Interchange 会把传统 OBJ/MTL 的 `map_Kd` 写入该参数。
+4. Interchange 固定关闭同名材质复用，保证按 `parent_material` 新建材质实例。
 5. `require_parent_material_instances=true` 会在导入后校验每个材质槽均为母材质实例；OBJ 应提供有效的
    `.mtl`，材质贴图路径应相对于 OBJ/MTL 可访问。
 6. `build_static_mesh_ddc=true` 会在每个 OBJ 导入后等待 StaticMesh 构建及 DDC 写入完成，
@@ -33,20 +34,15 @@ UE Python 对象。
 7. `cleanup.unload_after_import` 默认 `true`，每导入完一批就调用 `UnloadPackages` 卸载这批资产并回收内存；
    `cleanup.interval` 默认 `1`，表示攒多少个 OBJ 卸载一次。导入的资产带 `RF_Standalone`，常规 GC 不会回收，
    关掉这项时内存会随 OBJ 数量线性上涨。`import_task.save=false` 时不会卸载，避免丢掉没保存的改动。
-8. 其余 `import_task`、`obj_import_ui`、`static_mesh_import_data` 和 `texture_import_data` 项均直接映射
-   UE Python 属性。
+8. `import_task` 继续直接映射 UE Python 属性；Interchange 的网格、材质与纹理选项固定在
+   `import_obj_interchange.py` 中，不从 JSON 覆盖。
 9. OBJ 文件名中的数字负号会编码为 `neg`，数字正号仍按原规则省略。例如
    `Tile_+0000_-0010.obj` 会生成 `SM_Tile_0000_neg0010`，而
    `Tile_+0000_+0010.obj` 仍生成 `SM_Tile_0000_0010`。导入前会检查清洗后的静态模型资产名，
    如仍有重名则在逐个导入 OBJ 前中止并列出冲突文件。
 
-OBJ/MTL 常用映射：
-
-- `map_Kd` -> `base_diffuse_texture_name`
-- `map_Bump`/`bump` -> `base_normal_texture_name`
-- `map_Ke` -> `base_emmisive_texture_name`
-- `map_Ks` -> `base_specular_texture_name`
-- 透明贴图 -> `base_opacity_texture_name`
+当前使用的 OBJ/MTL 映射：`map_Kd` -> `DiffuseColorMap`。其余 Interchange 参数保持 UE 默认命名，
+当前母材质只依赖 `DiffuseColorMap`。
 
 ## 使用
 
@@ -79,7 +75,8 @@ das_ue_launcher.exe --ue-launch "D:\Project\MyProject.uproject"
 - 物理目录：`<项目>/Content/ObjImport/YYYYMMDD_HHMMSS`
 - 目录内直接包含本批次全部瓦块资产，不再为每个瓦块创建子目录
 - 静态模型前缀：`SM_`
-- 默认材质目录：工具自动在普通 `DasMaterial` 与天气版 `Weather/DasMaterial` 间选择，并覆盖复制到项目 `Content/DasMaterial`
+- 默认材质目录：普通版 `DasMaterialObj` 或天气版 `Weather/DasMaterialObj`，每次运行覆盖复制到项目 `Content/DasMaterialObj`
+- 兼容资源：旧 `DasMaterial` 与 `Weather/DasMaterial` 继续随工具发布，但新版流程不加载、不覆盖项目里的旧材质目录
 - 材质：以本批次副本 `/Game/ObjImport/YYYYMMDD_HHMMSS/DasDataInfo/MI_Model_YYYYMMDD_HHMMSS` 为父级生成材质实例
 
 `metadata.json`（`metadata.xml` 的经纬度换算结果）由 `obj_ue_import.exe` 写，汇总关卡
@@ -106,10 +103,10 @@ das_ue_launcher.exe --ue-launch "D:\Project\MyProject.uproject"
 
 ## 源码依据
 
-- `FbxFactory.cpp`：`UFbxFactory` 注册并支持 `.obj`，指定工厂后不会转入 Interchange。
-- `FbxMainImport.cpp`：把 `texture_import_data` 的母材质和参数名写入导入选项。
-- `FbxMaterialImport.cpp`：使用 `MaterialInstanceConstantFactoryNew` 创建母材质实例并绑定 OBJ/MTL 纹理，
-  `InitialParent` 取自 `FbxImportOptions.BaseMaterial`，因此换母材质只需改 `base_material_name`。
+- `InterchangeOBJTranslator.cpp`：传统 MTL 的 `map_Kd` 生成 `DiffuseColor` 纹理输入。
+- `InterchangeGenericMaterialPipeline.cpp`：材质实例纹理输入追加 `Map`，因此参数名为
+  `DiffuseColorMap`；`ParentMaterial` 用作材质实例父级。
+- `import_obj.py`：保留旧版 `FbxFactory` 导入实现，仅供代码回退参考。
 - `EditorAssetSubsystem.cpp`：`DuplicateAsset` 自带 `GIsRunningUnattendedScript` 守卫，commandlet 下复制资产不会弹框。
 - `LevelEditorSubsystem.cpp`：`NewLevel` = `GEditor->NewMap()` + `SaveMap`，不依赖 Slate，可在 commandlet 中使用。
 - `EditorActorSubsystem.cpp`：`SpawnActorFromObject` 传 `UStaticMesh` 会经 `UActorFactoryStaticMesh` 生成 `AStaticMeshActor`。

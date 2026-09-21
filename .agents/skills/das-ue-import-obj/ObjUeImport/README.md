@@ -1,14 +1,14 @@
 # obj_ue_import.exe 命令行说明
 
 把一个目录里的 OBJ 批量导入 Unreal 项目，按配置批量修改导入产生的纹理属性，最后把整批静态模型汇总到一个关卡里。
-程序按工程和插件模块选择一次兼容的 `UnrealEditor-*-Cmd.exe`，在同一个编辑器会话里依次跑 `import_obj.py`、`modify_texture.py`、`build_level.py`。
+程序按工程和插件模块选择一次兼容的 `UnrealEditor-*-Cmd.exe`，在同一个编辑器会话里依次跑 `import_obj_interchange.py`、`modify_texture.py`、`build_level.py`。OBJ 固定走 Interchange；旧版 `FbxFactory` 实现保留在 `import_obj.py`，运行时不提供切换入口。
 
 不带下列参数启动（例如双击）会打开图形界面；带参数则是纯命令行模式，不弹窗，便于批处理。
 
 ## 前置条件
 
 - 目标 Unreal 项目当前**没有被编辑器打开**，否则 commandlet 会因为文件占用失败。
-- 程序目录下存在 `das_ue_asset_path.exe`、`extern\ObjDynamicImport`（含导入脚本、普通 `DasMaterial` 与 `Weather\DasMaterial`）以及 `extern\ModifyTexture`。发布包已自带。
+- 程序目录下存在 `das_ue_asset_path.exe`、`extern\ObjDynamicImport`（含导入脚本、新版普通 `DasMaterialObj` 与天气版 `Weather\DasMaterialObj`，以及兼容旧版的 `DasMaterial`、`Weather\DasMaterial`）和 `extern\ModifyTexture`。发布包已自带。
 - 能定位到插件模块完整且 BuildId 匹配的 `UnrealEditor-*-Cmd.exe`，见下文「编辑器选择」。
 - 可选：程序目录下有 `metadata_coords.exe` 与 `share\proj\proj.db`（发布包已自带），用于换算 `metadata.xml` 的经纬度；缺失只会打警告，不影响导入。
 - 不需要在本机安装 Python：脚本由 Unreal 自带的 Python 执行。
@@ -69,7 +69,7 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
 
 1. 校验输入、统计 `.obj` 数量，按与 `das_ue_launcher.exe` 相同的规则定位引擎并选择插件兼容的 commandlet——任何一项不通过都会在启动 Unreal 之前失败。
 2. 调用同目录的 `das_ue_asset_path.exe`，同时扫描工程、项目插件与当前引擎插件，检查 `UltraDynamicWeather_Parameters`。
-3. 找到标准天气资产时启用插件、写入目录重定向并复制 `Weather\DasMaterial`；未找到时复制普通 `DasMaterial`。两者目标都是 `<项目>\Content\DasMaterial`。
+3. 找到标准天气资产时启用插件、写入目录重定向并选择 `Weather\DasMaterialObj`；否则选择普通 `DasMaterialObj`。两者都复制到 `<项目>\Content\DasMaterialObj`，新版不会切换到旧 `DasMaterial`。
 4. 按 OBJ 路径稳定排序，找到第一份 `metadata.xml` 并换算经纬度；指定 `--ue-origin` 时同时计算整批模型的 UE 偏移。结果写成 `<批次目录>\DasDataInfo\metadata.json`，见下文「批次元数据」。
 5. 在 `%TEMP%\ObjUeImport\<时间戳>\` 生成三份临时配置：
    - `import_obj.json`：`project_file` 改成本次项目，`destination_root` 里的 `{timestamp}` 已展开成实际时间戳，`batch_timestamp` 填成本次时间戳；
@@ -78,9 +78,9 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
    出错时可以直接打开这三个文件核对实际生效的配置。
 6. 启动选中的 `UnrealEditor-*-Cmd.exe`，依次执行导入、改纹理、建关卡，全过程日志实时转发到标准输出。
 
-## 天气材质自动选择
+## DasMaterialObj 天气依赖
 
-天气版母材质引用旧目录 `/Game/UltraDynamicSky/...`。工具找到完整目录结构中的标志资产后，会从挂载点推导插件名、从资产路径推导 UDS 根目录，并在项目 `Config\DefaultEngine.ini` 幂等写入。例如 UDS 位于插件根目录时：
+天气版 `Weather/DasMaterialObj` 的母材质引用旧目录 `/Game/UltraDynamicSky/...`。工具找到完整目录结构中的标志资产后，会从挂载点推导插件名、从资产路径推导 UDS 根目录，并在项目 `Config\DefaultEngine.ini` 幂等写入。例如 UDS 位于插件根目录时：
 
 ```ini
 [CoreRedirects]
@@ -89,7 +89,7 @@ obj_ue_import.exe --ue-import "D:\Obj" "D:\Proj\My.uproject" ^
 
 UDS 也可以位于插件子目录，例如标志资产为 `/DasAssetLibrary/UltraDynamicSky/Materials/Weather/UltraDynamicWeather_Parameters` 时，`NewName` 使用 `/DasAssetLibrary/UltraDynamicSky`。同时，工具会在 `.uproject` 中把挂载该内容的插件设为 `Enabled=true`，并为本次 commandlet 追加到 `-EnablePlugins=`。已有相同映射不会重复写入；同一 `OldName` 已指向其他目录时会在复制材质和启动 UE 前报错，不覆盖项目配置。
 
-以下情况使用普通材质继续导入：没有标志资产、只有同名但目录结构不兼容的资产。检测 EXE 缺失、执行失败、输出损坏或出现多个兼容天气资产根目录属于检测失败，会终止导入。
+没有标志资产或只有同名但目录结构不兼容的资产时，不修改工程插件与重定向，使用普通 `DasMaterialObj` 继续导入。检测到兼容天气资产但 `Weather/DasMaterialObj` 尚未补齐时会明确报资源缺失；检测 EXE 缺失、执行失败、输出损坏或出现多个兼容天气资产根目录也会终止导入。
 
 导入结果默认落在 `/Game/ObjImport/<YYYYMMDD_HHMMSS>`，对应物理目录 `<项目>\Content\ObjImport\<YYYYMMDD_HHMMSS>`；静态模型前缀 `SM_`。文件名中的数字负号编码为 `neg`，数字正号仍按原规则省略（例如 `Tile_+0000_-0010.obj` -> `SM_Tile_0000_neg0010`）。工具会在导入前检查最终静态模型资产名是否重复，避免 `replace_existing=true` 静默覆盖。每个 OBJ 导入后会等待 StaticMesh 构建及 DDC 写入完成，再保存资产。
 
@@ -125,7 +125,7 @@ UDS 也可以位于插件子目录，例如标志资产为 `/DasAssetLibrary/Ult
 
 导入开始前会把 `parent_material` 复制成 `<批次目录>\DasDataInfo\MI_Model_<YYYYMMDD_HHMMSS>`，本批次全部瓦块的材质实例都挂到这份副本上。之后调这份副本的参数只影响本批次，不会波及历史导入的数据。副本的 Parent 仍是原来的 `M_Model`。
 
-副本、`metadata.json` 和关卡 `mapObjImport_<时间戳>.umap` 一起待在批次目录的 `DasDataInfo` 里，删批次时连同 `<时间戳>\` 目录一起删掉即可，不会碰到工具自带的 `Content\DasMaterial` 模板资产。
+副本、`metadata.json` 和关卡 `mapObjImport_<时间戳>.umap` 一起待在批次目录的 `DasDataInfo` 里，删批次时连同 `<时间戳>\` 目录一起删掉即可，不会碰到工具自带的 `Content\DasMaterialObj` 模板资产。
 
 不需要这个行为时，把 `import_obj.json` 的 `batch_parent_material.enabled` 改成 `false`，所有批次会重新共用同一个 `parent_material`。想把副本放回批次目录外，给 `batch_parent_material.destination_root` 填一个绝对目录（例如老行为的 `/Game/ObjImport`）。
 
@@ -155,10 +155,11 @@ UDS 也可以位于插件子目录，例如标志资产为 `/DasAssetLibrary/Ult
 
 `import_obj.json`（其余字段的含义见 `extern\ObjDynamicImport\README.md`）：
 
-- `destination_root`、`asset_name_prefix`、`parent_material`、`build_static_mesh_ddc`、`import_task`、`obj_import_ui`、`static_mesh_import_data`、`texture_import_data` 等由 `import_obj.py` 使用；`build_static_mesh_ddc` 默认为 `true`；
+- `destination_root`、`asset_name_prefix`、`parent_material`、`build_static_mesh_ddc`、`import_task` 由 `import_obj_interchange.py` 使用；`build_static_mesh_ddc` 默认为 `true`；
+- Interchange 固定导入 StaticMesh、材质实例与纹理：不合并网格、不删除退化面、生成 Lightmap UV、启用 Nanite、按 `100.0` 统一缩放。传统 OBJ/MTL 的 `map_Kd` 由 UE 映射到母材质固定纹理参数 `DiffuseColorMap`，配置文件不再提供纹理参数名替换；
 - `data_info_directory`（缺省 `DasDataInfo`，只能是一级目录名）是批次目录下收 `metadata.json`、批次母材质与关卡的子目录，程序与脚本读的是同一个键；
 - `batch_parent_material.enabled`（缺省 `true`）决定是否为本批次复制一份独立的母材质，`batch_parent_material.destination_root`（缺省空串 = 批次目录下的 `data_info_directory`；填绝对目录时支持 `{timestamp}` / `{date}`）是副本的存放目录。整段 `batch_parent_material` 可以省略；
-- `enabled_plugins` 拼成 `-EnablePlugins=`，`commandlet_arguments` 原样追加到命令行。默认配置不再包含 `-DisablePlugins`；自定义配置显式提供时仍原样保留。程序会自动补齐缺失的 `-unattended`、`-nosplash`、`-stdout`、`-FullStdOutLogOutput`、`-UTF8Output`、`-AllowCommandletRendering`——少了前几个会看不到日志或卡在无人应答的弹窗上，少了 `-UTF8Output` 则脚本里的中文会被逐字输出成 `?`；少了 `-AllowCommandletRendering` 则 `FApp::CanEverRender()` 为 false，`UTexture::CachePlatformData` 直接跳过，纹理不会写入 DDC，编辑器下次打开会把所有纹理重建一遍（`import_obj.py` 启动时会检查这个参数，缺失直接报错）；
+- `enabled_plugins` 拼成 `-EnablePlugins=`，`commandlet_arguments` 原样追加到命令行。默认配置不再包含 `-DisablePlugins`；自定义配置显式提供时仍原样保留。程序会自动补齐缺失的 `-unattended`、`-nosplash`、`-stdout`、`-FullStdOutLogOutput`、`-UTF8Output`、`-AllowCommandletRendering`——少了前几个会看不到日志或卡在无人应答的弹窗上，少了 `-UTF8Output` 则脚本里的中文会被逐字输出成 `?`；少了 `-AllowCommandletRendering` 则 `FApp::CanEverRender()` 为 false，`UTexture::CachePlatformData` 直接跳过，纹理不会写入 DDC，编辑器下次打开会把所有纹理重建一遍（Interchange 导入脚本启动时会检查这个参数，缺失直接报错）；
 - `cleanup.unload_after_import`（缺省 `true`）每导入完一批就卸载这批资产并回收内存，`cleanup.interval`（缺省 `1`）是攒多少个 OBJ 卸载一次。整段 `cleanup` 可以省略；`import_task.save=false` 时不会卸载，避免丢掉没保存的改动；
 - `project_file` 与 `batch_timestamp` 由程序写入临时配置；`destination_root` 同样会按本次参数展开，项目路径请使用位置参数，目标目录请使用 `--destination`。
 
@@ -209,6 +210,6 @@ UDS 也可以位于插件子目录，例如标志资产为 `/DasAssetLibrary/Ult
 - 程序是 WIN32 子系统，未重定向时会附加到调用方的控制台；重定向到文件同样有效。
 - PowerShell 不会等待 WIN32 子系统程序退出，`&` 直接调用会立刻返回提示符。需要等待时重定向输出、接管道，或用 `Start-Process -Wait`。
 - 首次导入后若要覆盖同名资产，把 `import_obj.json` 的 `import_task.replace_existing` 与 `replace_existing_settings` 改为 `true`。
-- 母材质副本、关卡 `mapObjImport_<时间戳>.umap` 与 `metadata.json` 都在批次目录的 `DasDataInfo\` 里，程序不会清理历史批次。副本被批次资产引用，删之前先确认对应批次已经不需要了；确认后删掉批次目录 `<时间戳>\` 即可。`metadata.json` 不是 `.uasset`，在内容浏览器里删批次目录不会带走它，从资源管理器删整个目录才干净。`Content\DasMaterial` 只放工具自带的模板资产，每次运行会被覆盖复制，不要往里面加东西。
+- 母材质副本、关卡 `mapObjImport_<时间戳>.umap` 与 `metadata.json` 都在批次目录的 `DasDataInfo\` 里，程序不会清理历史批次。副本被批次资产引用，删之前先确认对应批次已经不需要了；确认后删掉批次目录 `<时间戳>\` 即可。`metadata.json` 不是 `.uasset`，在内容浏览器里删批次目录不会带走它，从资源管理器删整个目录才干净。`Content\DasMaterialObj` 只放工具自带的新版模板资产，每次运行会被覆盖复制，不要往里面加东西；旧 `Content\DasMaterial` 不会被新版覆盖。
 - 建关卡阶段会一次性加载整批 StaticMesh（连带材质实例与纹理头），这是全流程的内存峰值。瓦块特别多时用 `--skip-level` 跳过，之后单独处理。
 - 「取消」会先 `terminate` 再 `kill` 编辑器进程；此时已经写入项目的资产不会回滚。

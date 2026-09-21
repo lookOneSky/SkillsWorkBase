@@ -1,6 +1,6 @@
 ---
 name: das-ue-cpp
-description: 输入涉及 C++ 代码或 Unreal Engine（UE/虚幻引擎）时使用。
+description: 输入涉及 .h 头文件、C++ 代码或 Unreal Engine（UE/虚幻引擎）时使用。
 user-invocable: false
 ---
 

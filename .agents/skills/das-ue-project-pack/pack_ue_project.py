@@ -37,7 +37,10 @@ PROFILE_SKIPPED_DIRECTORIES = {
     "Plugins",
     "Source",
 }
-TIMESTAMP_RE = re.compile(r"^\d{12}(?:_DLC)?(?:[_-]\d{2})?$")
+TIMESTAMP_RE = re.compile(
+    r"^\d{12}(?:_DLC(?:_.+)?)?(?:[_-]\d{2})?$",
+    re.IGNORECASE,
+)
 HASH_SUFFIX_RE = re.compile(r"_[0-9a-f]{32}$", re.IGNORECASE)
 COOK_FAILURE_RE = re.compile(
     r"(?:Error_UnknownCookFailure|Cook(?:ing)?(?: commandlet)? failed|"
@@ -84,12 +87,66 @@ def read_json(path: Path) -> dict:
     raise PackageError("无法解析配置：{} ({})".format(path, last_error))
 
 
-def apply_packaging_mode(data: dict, dlc: bool) -> None:
+def validate_dlc_name(value: object) -> str:
+    name = str(value).strip()
+    if not name:
+        raise PackageError("DLC 模式必须通过 --dlc-name 指定名称，或在配置中提供 DLCName")
+    if name in {".", ".."} or name.endswith((" ", ".")):
+        raise PackageError("DLC 名称不能作为 Windows 目录名：{}".format(name))
+    if re.search(r'[<>:"/\\|?*\x00-\x1f]', name):
+        raise PackageError("DLC 名称包含 Windows 目录名不支持的字符：{}".format(name))
+    reserved = {
+        "con",
+        "prn",
+        "aux",
+        "nul",
+        *("com{}".format(index) for index in range(1, 10)),
+        *("lpt{}".format(index) for index in range(1, 10)),
+    }
+    if name.split(".", 1)[0].casefold() in reserved:
+        raise PackageError("DLC 名称是 Windows 保留名称：{}".format(name))
+    return name
+
+
+def profile_dlc_name(data: dict | None) -> str | None:
+    if not data:
+        return None
+    candidates = [data.get("DLCName"), profile_script(data).get("dlcname")]
+    for candidate in candidates:
+        if candidate is not None and str(candidate).strip():
+            return str(candidate).strip()
+    return None
+
+
+def resolve_dlc_name(
+    data: dict | None,
+    requested_name: str | None,
+    dlc: bool,
+) -> str | None:
+    if requested_name is not None and not dlc:
+        raise PackageError("--dlc-name 只能与 --dlc 一起使用")
+    if not dlc:
+        return None
+    candidate = requested_name if requested_name is not None else profile_dlc_name(data)
+    return validate_dlc_name(candidate or "")
+
+
+def apply_packaging_mode(
+    data: dict,
+    dlc: bool,
+    dlc_name: str | None = None,
+) -> None:
     data["CreateReleaseVersion"] = not dlc
     data["CreateDLC"] = dlc
+    if dlc_name is not None:
+        data["DLCName"] = dlc_name
 
 
-def update_profile_packaging_mode(path: Path, dlc: bool) -> None:
+def update_profile_packaging_mode(
+    path: Path,
+    dlc: bool,
+    dlc_name: str | None = None,
+) -> None:
     raw = path.read_bytes()
     encodings = ["utf-8-sig" if raw.startswith(b"\xef\xbb\xbf") else "utf-8"]
     if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
@@ -134,6 +191,21 @@ def update_profile_packaging_mode(path: Path, dlc: bool) -> None:
             raise PackageError(
                 "配置字段 {} 应恰好出现一次：{}".format(field, path)
             )
+
+    if dlc_name is not None:
+        pattern = re.compile(
+            r'(^[ \t]*"DLCName"[ \t]*:[ \t]*)"(?:\\.|[^"\\])*"([ \t]*,?[ \t]*\r?$)',
+            re.MULTILINE,
+        )
+        serialized_name = json.dumps(dlc_name, ensure_ascii=False)
+        updated, count = pattern.subn(
+            lambda match: "{}{}{}".format(
+                match.group(1), serialized_name, match.group(2)
+            ),
+            updated,
+        )
+        if count != 1:
+            raise PackageError("配置字段 DLCName 应恰好出现一次：{}".format(path))
 
     temporary_path = None
     try:
@@ -465,10 +537,19 @@ def resolve_output_root(
     return root.resolve()
 
 
-def choose_output_directory(root: Path, dlc: bool) -> Path:
+def choose_output_directory(
+    root: Path,
+    dlc: bool,
+    dlc_name: str | None = None,
+) -> Path:
     """在打包工作目录下选出本次输出目录，重名时追加序号"""
     timestamp = datetime.now().strftime("%Y%m%d%H%M")
-    directory_name = "{}_DLC".format(timestamp) if dlc else timestamp
+    if dlc:
+        if dlc_name is None:
+            raise PackageError("DLC 模式缺少 DLC 名称")
+        directory_name = "{}_DLC_{}".format(timestamp, dlc_name)
+    else:
+        directory_name = timestamp
     candidate = root / directory_name
     index = 1
     while candidate.exists():
@@ -516,13 +597,20 @@ def apply_release_parameters(
     output_root: Path,
     output_directory: Path,
     dlc: bool,
+    dlc_name: str | None = None,
 ) -> None:
     """主干打包写出基线，DLC 打包引用打包目录中最新的基线"""
-    for key in RELEASE_PARAMETERS:
-        parameters.pop(key, None)
+    release_parameter_names = {item.casefold() for item in RELEASE_PARAMETERS}
+    for key in list(parameters):
+        if key.casefold() in release_parameter_names:
+            parameters.pop(key)
     if dlc:
-        if not parameters.get("dlcname"):
-            raise PackageError("DLC 模式必须在配置中提供 DLCName")
+        if dlc_name is None:
+            raise PackageError("DLC 模式缺少 DLC 名称")
+        for key in list(parameters):
+            if key.casefold() == "dlcname":
+                parameters.pop(key)
+        parameters["dlcname"] = dlc_name
         version = latest_release_version(output_root)
         if not version:
             raise PackageError(
@@ -533,8 +621,10 @@ def apply_release_parameters(
         parameters["basedonreleaseversionroot"] = str(release_root(output_root))
         parameters["basedonreleaseversion"] = version
         return
-    for key in DLC_ONLY_PARAMETERS:
-        parameters.pop(key, None)
+    dlc_parameter_names = {item.casefold() for item in DLC_ONLY_PARAMETERS}
+    for key in list(parameters):
+        if key.casefold() in dlc_parameter_names:
+            parameters.pop(key)
     parameters["createreleaseversionroot"] = str(release_root(output_root))
     parameters["createreleaseversion"] = release_version_name(output_directory)
 
@@ -548,6 +638,7 @@ def build_parameters(
     engine: Path,
     data: dict | None,
     dlc: bool,
+    dlc_name: str | None = None,
 ) -> dict:
     script = profile_script(data or {})
     if script:
@@ -630,7 +721,13 @@ def build_parameters(
     if (engine / "Build/InstalledBuild.txt").is_file():
         parameters["installed"] = True
     parameters["stagingdirectory"] = str(output_directory)
-    apply_release_parameters(parameters, output_root, output_directory, dlc)
+    apply_release_parameters(
+        parameters,
+        output_root,
+        output_directory,
+        dlc,
+        dlc_name,
+    )
     return parameters
 
 
@@ -766,6 +863,10 @@ def parse_args(argv=None):
         action="store_true",
         help="使用 DLC 模式；默认使用非 DLC 模式",
     )
+    parser.add_argument(
+        "--dlc-name",
+        help="DLC 名称；DLC 模式未指定时从 .ulp2 的 DLCName 继承",
+    )
     parser.add_argument("--dry-run", action="store_true", help="只打印计划和命令")
     return parser.parse_args(argv)
 
@@ -790,12 +891,13 @@ def main(argv=None) -> int:
         profile_path, profile_data = select_profile(project, engine)
         if args.dlc and (profile_path is None or profile_data is None):
             raise PackageError("DLC 模式必须匹配包含模式字段的 .ulp2 配置")
+        dlc_name = resolve_dlc_name(profile_data, args.dlc_name, args.dlc)
         if profile_data is not None:
-            apply_packaging_mode(profile_data, args.dlc)
+            apply_packaging_mode(profile_data, args.dlc, dlc_name)
         script = profile_script(profile_data or {})
         editor_command = find_editor_command(engine, script)
         output_root = resolve_output_root(project, profile_data, args.work_directory)
-        output_directory = choose_output_directory(output_root, args.dlc)
+        output_directory = choose_output_directory(output_root, args.dlc, dlc_name)
         parameters = build_parameters(
             project,
             output_root,
@@ -805,12 +907,15 @@ def main(argv=None) -> int:
             engine,
             profile_data,
             args.dlc,
+            dlc_name,
         )
         command = build_command(run_uat_path, project, parameters)
 
         print("[工程] {}".format(project))
         print("[配置文件] {}".format(profile_path or "未匹配，使用默认参数"))
         print("[打包模式] {}".format("DLC" if args.dlc else "非 DLC"))
+        if dlc_name is not None:
+            print("[DLC 名称] {}".format(dlc_name))
         if profile_data is not None:
             print(
                 "[模式配置] CreateReleaseVersion={}, CreateDLC={}".format(
@@ -840,7 +945,7 @@ def main(argv=None) -> int:
         if output_directory.exists() and any(output_directory.iterdir()):
             raise PackageError("输出目录不是空目录，已禁止覆盖：{}".format(output_directory))
         if profile_path is not None:
-            update_profile_packaging_mode(profile_path, args.dlc)
+            update_profile_packaging_mode(profile_path, args.dlc, dlc_name)
             print("[已更新配置模式] {}".format(profile_path))
         output_directory.mkdir(parents=True, exist_ok=True)
         log_path = output_directory.parent / "{}-BuildCookRun.log".format(output_directory.name)
