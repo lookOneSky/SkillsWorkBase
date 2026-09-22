@@ -24,6 +24,10 @@
   "common_meshes_properties": {
     "compute_weighted_normals": true
   },
+  "mesh_pipeline": {
+    "build_nanite": true,
+    "generate_lightmap_u_vs": true
+  },
   "cleanup": {
     "unload_after_import": true,
     "interval": 1

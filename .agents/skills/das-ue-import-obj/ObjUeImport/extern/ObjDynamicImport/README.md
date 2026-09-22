@@ -27,7 +27,7 @@ Ultra Dynamic Weather 目录时还会配置插件与 Core Redirect。旧 `DasMat
 3. `validate_parent_material_parameters=true` 时，导入前校验母材质必须提供纹理参数
    `DiffuseColorMap`。Interchange 会把传统 OBJ/MTL 的 `map_Kd` 写入该参数。
 4. Interchange 固定关闭同名材质复用，保证按 `parent_material` 新建材质实例。
-   默认 JSON 开启“计算加权法线”；其他未写入 JSON 的网格参数沿用当前 UE 引擎的
+   默认 JSON 开启“计算加权法线”、Nanite 和 Lightmap UV；其他未写入 JSON 的网格参数沿用当前 UE 引擎的
    `InterchangeGenericAssetsPipeline` 类初始值。UE 5.3.2 默认重新计算法线与切线。
 5. `require_parent_material_instances=true` 会在导入后校验每个材质槽均为母材质实例；OBJ 应提供有效的
    `.mtl`，材质贴图路径应相对于 OBJ/MTL 可访问。
@@ -38,8 +38,9 @@ Ultra Dynamic Weather 目录时还会配置插件与 Core Redirect。旧 `DasMat
    `cleanup.interval` 默认 `1`，表示攒多少个 OBJ 卸载一次。导入的资产带 `RF_Standalone`，常规 GC 不会回收，
    关掉这项时内存会随 OBJ 数量线性上涨。`import_task.save=false` 时不会卸载，避免丢掉没保存的改动。
 8. `import_task` 继续直接映射 UE Python 属性；`common_meshes_properties`、`mesh_pipeline`、
-   `animation_pipeline` 中填写的属性也直接覆盖对应 Interchange 管线属性。未填写的属性保持
-   UE 类初始值。默认 JSON 仅覆盖 `compute_weighted_normals=true`；删除该字段后，
+   `animation_pipeline` 中填写的属性也直接覆盖对应 Interchange 管线属性。OBJ 网格默认启用
+   `build_nanite` 和 `generate_lightmap_u_vs`，自定义 JSON 可以显式覆盖；其他未填写的属性保持
+   UE 类初始值。默认 JSON 还覆盖 `compute_weighted_normals=true`；删除该字段后，
    UE 5.3.2 类初始值为 `false`。命名、统一缩放与母材质选项仍由工具设置。
 9. OBJ 文件名中的数字负号会编码为 `neg`，数字正号仍按原规则省略。例如
    `Tile_+0000_-0010.obj` 会生成 `SM_Tile_0000_neg0010`，而

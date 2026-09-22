@@ -69,15 +69,23 @@ def _create_interchange_options(asset_name, parent_path, config):
     pipeline.set_editor_property("asset_name", asset_name)
     pipeline.set_editor_property("import_offset_uniform_scale", _IMPORT_UNIFORM_SCALE)
 
-    # Only fields supplied in JSON override the Unreal class defaults.
+    mesh_config = {"build_nanite": True, "generate_lightmap_u_vs": True}
+    mesh_config.update(config.get("mesh_pipeline", {}))
+
+    # Preserve Unreal defaults except for the OBJ mesh settings above.
     for section_name in (
         "common_meshes_properties",
         "mesh_pipeline",
         "animation_pipeline",
     ):
+        section_config = (
+            mesh_config
+            if section_name == "mesh_pipeline"
+            else config.get(section_name, {})
+        )
         legacy._set_properties(
             pipeline.get_editor_property(section_name),
-            config.get(section_name, {}),
+            section_config,
             section_name,
         )
 
