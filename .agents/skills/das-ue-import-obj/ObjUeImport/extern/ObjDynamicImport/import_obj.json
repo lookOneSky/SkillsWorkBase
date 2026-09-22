@@ -21,6 +21,9 @@
   "validate_parent_material_parameters": true,
   "require_parent_material_instances": true,
   "build_static_mesh_ddc": true,
+  "common_meshes_properties": {
+    "compute_weighted_normals": true
+  },
   "cleanup": {
     "unload_after_import": true,
     "interval": 1

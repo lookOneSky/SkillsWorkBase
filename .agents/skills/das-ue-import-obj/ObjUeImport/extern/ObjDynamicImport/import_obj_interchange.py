@@ -1,4 +1,4 @@
-"""Import OBJ through Unreal Interchange while reusing the legacy batch shell."""
+"""Import OBJ with Unreal defaults plus explicit JSON pipeline overrides."""
 
 from __future__ import print_function
 
@@ -60,7 +60,7 @@ def _load_interchange_parent_material(parent_path, validate_parameters):
     return parent_material
 
 
-def _create_interchange_options(asset_name, parent_path):
+def _create_interchange_options(asset_name, parent_path, config):
     _require_interchange_api()
 
     pipeline_stack = unreal.InterchangePipelineStackOverride()
@@ -69,18 +69,17 @@ def _create_interchange_options(asset_name, parent_path):
     pipeline.set_editor_property("asset_name", asset_name)
     pipeline.set_editor_property("import_offset_uniform_scale", _IMPORT_UNIFORM_SCALE)
 
-    common_meshes = pipeline.get_editor_property("common_meshes_properties")
-    common_meshes.set_editor_property("remove_degenerates", False)
-
-    mesh_pipeline = pipeline.get_editor_property("mesh_pipeline")
-    mesh_pipeline.set_editor_property("import_static_meshes", True)
-    mesh_pipeline.set_editor_property("combine_static_meshes", False)
-    mesh_pipeline.set_editor_property("import_skeletal_meshes", False)
-    mesh_pipeline.set_editor_property("build_nanite", True)
-    mesh_pipeline.set_editor_property("generate_lightmap_u_vs", True)
-
-    animation_pipeline = pipeline.get_editor_property("animation_pipeline")
-    animation_pipeline.set_editor_property("import_animations", False)
+    # Only fields supplied in JSON override the Unreal class defaults.
+    for section_name in (
+        "common_meshes_properties",
+        "mesh_pipeline",
+        "animation_pipeline",
+    ):
+        legacy._set_properties(
+            pipeline.get_editor_property(section_name),
+            config.get(section_name, {}),
+            section_name,
+        )
 
     material_pipeline = pipeline.get_editor_property("material_pipeline")
     material_pipeline.set_editor_property("import_materials", True)
@@ -91,8 +90,6 @@ def _create_interchange_options(asset_name, parent_path):
     material_pipeline.set_editor_property(
         "parent_material", unreal.SoftObjectPath(parent_path)
     )
-
-    # UE 5.5+ exposes these switches. UE 5.3/5.4 does not need them.
     _set_optional_editor_property(
         material_pipeline, "create_material_instance_for_parent", True
     )
@@ -106,6 +103,19 @@ def _create_interchange_options(asset_name, parent_path):
 
     pipeline_stack.add_pipeline(pipeline)
     return pipeline_stack
+
+
+def _use_complex_collision_as_simple(static_meshes):
+    for static_mesh in static_meshes:
+        body_setup = static_mesh.get_editor_property("body_setup")
+        if body_setup is None:
+            raise legacy.ObjImportError(
+                "静态模型缺少碰撞设置：{}".format(static_mesh.get_path_name())
+            )
+        body_setup.set_editor_property(
+            "collision_trace_flag",
+            unreal.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE,
+        )
 
 
 def _run_interchange_import(
@@ -131,7 +141,7 @@ def _run_interchange_import(
     import_task.set_editor_property("filename", str(source_file))
     import_task.set_editor_property("destination_path", destination_path)
     import_task.set_editor_property(
-        "options", _create_interchange_options(asset_name, parent_path)
+        "options", _create_interchange_options(asset_name, parent_path, config)
     )
 
     replace_existing = bool(task_config.get("replace_existing", False))
@@ -154,12 +164,20 @@ def _run_interchange_import(
     static_meshes, material_instances = legacy._verify_import(
         imported_objects, parent_material, require_parent_instances
     )
+    _use_complex_collision_as_simple(static_meshes)
     derived_data = (
         legacy._wait_for_static_mesh_derived_data(static_meshes)
         if build_static_mesh_ddc
         else []
     )
     if task_config.get("save", True):
+        for static_mesh in static_meshes:
+            if not unreal.EditorAssetLibrary.save_loaded_asset(
+                static_mesh, only_if_is_dirty=False
+            ):
+                raise legacy.ObjImportError(
+                    "静态模型保存失败：{}".format(static_mesh.get_path_name())
+                )
         if not unreal.EditorAssetLibrary.save_directory(
             destination_path, only_if_is_dirty=True, recursive=True
         ):
