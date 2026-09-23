@@ -1,8 +1,9 @@
 # OBJ 动态导入
 
 `import_obj_interchange.py` 是 `obj_ue_import.exe` 通过 `PythonScriptCommandlet` 执行的 UE 侧载荷，
-将单个 OBJ 或目录内的全部 OBJ 及其引用的 MTL、纹理导入项目 Content。一次运行只创建一个
-时间批次目录，所有瓦块资产直接存放在该目录内。新版在普通 `DasMaterialObj` 与天气版
+将单个 OBJ 或目录内的全部 OBJ 及其引用的 MTL、纹理导入项目 Content。一次运行创建一个
+时间批次目录，每个 OBJ 的网格、材质实例和纹理分别存放在 `Tiles/<OBJ文件名>/` 内。
+新版在普通 `DasMaterialObj` 与天气版
 `Weather/DasMaterialObj` 之间选择，并统一复制到项目 `Content/DasMaterialObj`；命中标准
 Ultra Dynamic Weather 目录时还会配置插件与 Core Redirect。旧 `DasMaterial`、
 `Weather/DasMaterial` 与 `import_obj.py` 均继续随包保留，供旧版流程使用。
@@ -50,7 +51,9 @@ Ultra Dynamic Weather 目录时还会配置插件与 Core Redirect。旧 `DasMat
 9. OBJ 文件名中的数字负号会编码为 `neg`，数字正号仍按原规则省略。例如
    `Tile_+0000_-0010.obj` 会生成 `SM_Tile_0000_neg0010`，而
    `Tile_+0000_+0010.obj` 仍生成 `SM_Tile_0000_0010`。导入前会检查清洗后的静态模型资产名，
-   如仍有重名则在逐个导入 OBJ 前中止并列出冲突文件。
+   如仍有重名则在逐个导入 OBJ 前中止并列出冲突文件。子目录名使用同一套文件名清洗规则，
+   因此不同瓦块可各自使用同名材质和纹理。
+   `data_info_directory` 不能设为 `Tiles`，以免与瓦块目录冲突。
 
 当前使用的 OBJ/MTL 映射：`map_Kd` -> `DiffuseColorMap`。其余 Interchange 参数保持 UE 默认命名，
 当前母材质只依赖 `DiffuseColorMap`。
@@ -84,7 +87,7 @@ das_ue_launcher.exe --ue-launch "D:\Project\MyProject.uproject"
 
 - UE 目录：`/Game/ObjImport/YYYYMMDD_HHMMSS`
 - 物理目录：`<项目>/Content/ObjImport/YYYYMMDD_HHMMSS`
-- 目录内直接包含本批次全部瓦块资产，不再为每个瓦块创建子目录
+- 每个瓦块使用独立子目录，例如 `Tiles/Tile_0000_neg0010/`，其网格、材质实例和纹理都位于该目录
 - 静态模型前缀：`SM_`
 - 默认材质目录：普通版 `DasMaterialObj` 或天气版 `Weather/DasMaterialObj`，每次运行覆盖复制到项目 `Content/DasMaterialObj`
 - 兼容资源：旧 `DasMaterial` 与 `Weather/DasMaterial` 继续随工具发布，但新版流程不加载、不覆盖项目里的旧材质目录

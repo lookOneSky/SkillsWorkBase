@@ -91,7 +91,7 @@ UDS 也可以位于插件子目录，例如标志资产为 `/DasAssetLibrary/Ult
 
 没有标志资产或只有同名但目录结构不兼容的资产时，不修改工程插件与重定向，使用普通 `DasMaterialObj` 继续导入。检测到兼容天气资产但 `Weather/DasMaterialObj` 尚未补齐时会明确报资源缺失；检测 EXE 缺失、执行失败、输出损坏或出现多个兼容天气资产根目录也会终止导入。
 
-导入结果默认落在 `/Game/ObjImport/<YYYYMMDD_HHMMSS>`，对应物理目录 `<项目>\Content\ObjImport\<YYYYMMDD_HHMMSS>`；静态模型前缀 `SM_`。文件名中的数字负号编码为 `neg`，数字正号仍按原规则省略（例如 `Tile_+0000_-0010.obj` -> `SM_Tile_0000_neg0010`）。工具会在导入前检查最终静态模型资产名是否重复，避免 `replace_existing=true` 静默覆盖。每个 OBJ 导入后会等待 StaticMesh 构建及 DDC 写入完成，再保存资产。
+导入结果默认落在 `/Game/ObjImport/<YYYYMMDD_HHMMSS>`，对应物理目录 `<项目>\Content\ObjImport\<YYYYMMDD_HHMMSS>`；每个 OBJ 的网格、材质实例和纹理位于独立的 `Tiles/<OBJ文件名>/` 子目录，同名材质不会跨 Tile 相互覆盖。静态模型前缀 `SM_`。文件名中的数字负号编码为 `neg`，数字正号仍按原规则省略（例如 `Tile_+0000_-0010.obj` -> `Tiles/Tile_0000_neg0010/SM_Tile_0000_neg0010`）。工具会在导入前检查最终静态模型资产名是否重复，避免 `replace_existing=true` 静默覆盖。每个 OBJ 导入后会等待 StaticMesh 构建及 DDC 写入完成，再保存资产。
 
 ## 批次元数据（DasDataInfo）
 
