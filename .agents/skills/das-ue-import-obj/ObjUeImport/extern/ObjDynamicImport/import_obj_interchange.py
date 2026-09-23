@@ -126,6 +126,71 @@ def _use_complex_collision_as_simple(static_meshes):
         )
 
 
+def _retain_jpeg_texture_sources(imported_objects):
+    """Reimport OBJ-linked JPEGs through TextureFactory to keep their source bytes.
+
+    UE 5.3's OBJ translator only exposes decoded texture payloads. Its texture
+    pipeline's prefer_compressed_source_data flag therefore cannot retain JPEGs.
+    An explicit TextureFactory bypasses Interchange for this second import and
+    updates the existing Texture2D without changing its material references.
+    Unreal's default TextureImporter.RetainJpegFormat setting keeps JPEG bytes.
+    """
+    retained_count = 0
+    processed_paths = set()
+    asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
+    for texture in imported_objects:
+        if not isinstance(texture, unreal.Texture2D):
+            continue
+        texture_path = texture.get_path_name()
+        if texture_path in processed_paths:
+            continue
+        processed_paths.add(texture_path)
+
+        import_data = texture.get_editor_property("asset_import_data")
+        if import_data is None:
+            unreal.log_warning("OBJ 纹理缺少源文件记录，跳过 JPEG 保留：{}".format(texture_path))
+            continue
+        source_filename = import_data.get_first_filename()
+        if not source_filename:
+            unreal.log_warning("OBJ 纹理源文件记录为空，跳过 JPEG 保留：{}".format(texture_path))
+            continue
+        source_file = Path(source_filename)
+        if source_file.suffix.casefold() not in (".jpg", ".jpeg", ".jpe"):
+            continue
+        if not source_file.is_file():
+            raise legacy.ObjImportError(
+                "JPEG 纹理源文件不存在：{}；资产：{}".format(source_file, texture_path)
+            )
+
+        import_task = unreal.AssetImportTask()
+        import_task.set_editor_property("filename", str(source_file))
+        import_task.set_editor_property(
+            "destination_path", texture_path.rsplit("/", 1)[0]
+        )
+        import_task.set_editor_property("destination_name", texture.get_name())
+        import_task.set_editor_property("factory", unreal.TextureFactory())
+        import_task.set_editor_property("automated", True)
+        import_task.set_editor_property("replace_existing", True)
+        import_task.set_editor_property("replace_existing_settings", False)
+        import_task.set_editor_property("save", False)
+        import_task.set_editor_property("async_", False)
+        asset_tools.import_asset_tasks([import_task])
+
+        reimported_objects = legacy._collect_imported_objects(import_task)
+        if not any(
+            value.get_path_name() == texture_path for value in reimported_objects
+        ):
+            raise legacy.ObjImportError(
+                "JPEG 纹理未能更新原资产：{}；源文件：{}".format(
+                    texture_path, source_file
+                )
+            )
+        retained_count += 1
+
+    if retained_count:
+        unreal.log("OBJ_IMPORT_JPEG_RETAINED={}".format(retained_count))
+
+
 def _run_interchange_import(
     source_file, config, destination_path, parent_path, collect_packages
 ):
@@ -169,6 +234,7 @@ def _run_interchange_import(
             "Interchange OBJ 导入失败，任务没有返回任何资产：{}".format(source_file)
         )
 
+    _retain_jpeg_texture_sources(imported_objects)
     static_meshes, material_instances = legacy._verify_import(
         imported_objects, parent_material, require_parent_instances
     )

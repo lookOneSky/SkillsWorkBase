@@ -34,6 +34,11 @@ Ultra Dynamic Weather 目录时还会配置插件与 Core Redirect。旧 `DasMat
 6. `build_static_mesh_ddc=true` 会在每个 OBJ 导入后等待 StaticMesh 构建及 DDC 写入完成，
    再保存资产。
    导入生成的每个 StaticMesh 都会设置为“使用复杂碰撞作为简单碰撞”。
+   UE 5.3 的 OBJ Interchange 翻译器会把引用的 JPG/JPEG 解码，使纹理资产的源数据保存为 PNG。
+   工具会从纹理的源文件记录找到原始 JPG/JPEG，使用 `TextureFactory` 更新同名纹理资产；
+   UE 默认的 `TextureImporter.RetainJpegFormat=True` 会保留 JPEG 源数据。
+   `OBJ_IMPORT_JPEG_RETAINED=N` 表示该 OBJ 更新的 JPEG 纹理数。这减少的是项目里纹理 `.uasset` 的源数据体积，
+   不改变打包后的运行时纹理格式。已有批次需重新导入才能应用。
 7. `cleanup.unload_after_import` 默认 `true`，每导入完一批就调用 `UnloadPackages` 卸载这批资产并回收内存；
    `cleanup.interval` 默认 `1`，表示攒多少个 OBJ 卸载一次。导入的资产带 `RF_Standalone`，常规 GC 不会回收，
    关掉这项时内存会随 OBJ 数量线性上涨。`import_task.save=false` 时不会卸载，避免丢掉没保存的改动。

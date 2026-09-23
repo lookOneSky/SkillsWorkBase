@@ -157,6 +157,7 @@ UDS 也可以位于插件子目录，例如标志资产为 `/DasAssetLibrary/Ult
 
 - `destination_root`、`asset_name_prefix`、`parent_material`、`build_static_mesh_ddc`、`import_task` 由 `import_obj_interchange.py` 使用；`build_static_mesh_ddc` 默认为 `true`；
 - OBJ 由 Interchange 导入为 StaticMesh；`common_meshes_properties`、`mesh_pipeline`、`animation_pipeline` 中的 JSON 属性覆盖对应导入参数，未填写的参数保持 UE `InterchangeGenericAssetsPipeline` 类初始值。默认 JSON 仅显式开启加权法线；UE 5.3.2 类初始值是重新计算法线与切线、关闭加权法线和 Nanite、不删除退化面、生成 Lightmap UV。工具仍按 `100.0` 统一缩放，并把传统 OBJ/MTL 的 `map_Kd` 映射到母材质固定纹理参数 `DiffuseColorMap`；
+- OBJ 导入生成的 JPEG 纹理会从原始 `.jpg` / `.jpeg` 文件再次更新同名纹理资产，避免 UE 5.3 的 OBJ 翻译器把源数据解码后保存为较大的 PNG。UE 默认 `TextureImporter.RetainJpegFormat=True`；日志 `OBJ_IMPORT_JPEG_RETAINED=N` 给出每个 OBJ 处理的数量。该优化针对项目中的纹理资产源数据，不改变打包后的纹理大小，已有批次需重新导入；
 - `data_info_directory`（缺省 `DasDataInfo`，只能是一级目录名）是批次目录下收 `metadata.json`、批次母材质与关卡的子目录，程序与脚本读的是同一个键；
 - `batch_parent_material.enabled`（缺省 `true`）决定是否为本批次复制一份独立的母材质，`batch_parent_material.destination_root`（缺省空串 = 批次目录下的 `data_info_directory`；填绝对目录时支持 `{timestamp}` / `{date}`）是副本的存放目录。整段 `batch_parent_material` 可以省略；
 - `enabled_plugins` 拼成 `-EnablePlugins=`，`commandlet_arguments` 原样追加到命令行。默认配置不再包含 `-DisablePlugins`；自定义配置显式提供时仍原样保留。程序会自动补齐缺失的 `-unattended`、`-nosplash`、`-stdout`、`-FullStdOutLogOutput`、`-UTF8Output`、`-AllowCommandletRendering`——少了前几个会看不到日志或卡在无人应答的弹窗上，少了 `-UTF8Output` 则脚本里的中文会被逐字输出成 `?`；少了 `-AllowCommandletRendering` 则 `FApp::CanEverRender()` 为 false，`UTexture::CachePlatformData` 直接跳过，纹理不会写入 DDC，编辑器下次打开会把所有纹理重建一遍（Interchange 导入脚本启动时会检查这个参数，缺失直接报错）；
