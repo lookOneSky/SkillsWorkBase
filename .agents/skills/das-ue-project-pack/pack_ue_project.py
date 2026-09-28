@@ -595,7 +595,7 @@ def release_version_name(output_directory: Path) -> str:
 
 
 def has_release_payload(directory: Path, platform: str) -> bool:
-    """基线目录下目标平台含开发期资产注册表即视为可用"""
+    """基线目录下目标平台（含别名）有开发期资产注册表即视为可用"""
     direct = directory / platform / RELEASE_METADATA_RELATIVE
     if direct.is_file():
         return True
@@ -603,9 +603,9 @@ def has_release_payload(directory: Path, platform: str) -> bool:
         platforms = [item for item in directory.iterdir() if item.is_dir()]
     except OSError:
         return False
-    normalized = normalize_name(platform)
+    normalized = normalize_name(canonical_platform_name(platform))
     return any(
-        normalize_name(item.name).startswith(normalized)
+        normalize_name(canonical_platform_name(item.name)).startswith(normalized)
         and (item / RELEASE_METADATA_RELATIVE).is_file()
         for item in platforms
     )
