@@ -20,4 +20,5 @@ user-invocable: false
 4. 用户指定输出工作目录时直接使用；未指定时优先读取 `.ulp2` 的 `PackageDir`，其次读取 `BuildCookRun.stagingdirectory`。若配置路径末级是既有的时间输出目录（包括普通、旧式 DLC 或带名称的 DLC 目录），取其父目录作为输出工作目录；配置也没有路径时使用 `<工程目录>\Saved\PackagedBuilds`。普通模式在输出工作目录下新建 `yyyyMMddHHmm`，DLC 模式新建 `yyyyMMddHHmm_DLC_<DLC 名称>`，重名时追加 `_01` 之类的序号。
 5. 基线固定放在 `<输出工作目录>\Releases\<yyyyMMddHHmm>\<平台>`，主干与 DLC 必须使用同一个输出工作目录。非 DLC 模式下发 `-createreleaseversionroot` 和 `-createreleaseversion=<本次输出目录名去掉序号后缀>`，并剔除配置继承来的 `dlcname`、`generatepatch`、`stagebasereleasepaks`、`addpatchlevel`。DLC 模式下发 `-basedonreleaseversionroot` 和 `-basedonreleaseversion=<Releases 下最新的可用基线名>`，忽略配置里写死的 `BasedOnReleaseVersionName`；只有目标平台目录（`Win64`、`Windows`、`WindowsNoEditor` 视为同一平台）含 `Metadata\DevelopmentAssetRegistry.bin` 的基线才算可用，找不到时直接报错，提醒先在同一目录完成一次主干打包。
 6. 首次 `BuildCookRun` 失败时，仅当日志明确包含 Cook 失败特征才追加 `-skipbuild` 重试一次，让 Cook 重新执行后继续 Stage/Package；不得因 Build、Stage、Package 等其他失败重试，也不得进行第二次 Cook 重试。
-7. 报告选中的配置或默认配置、实际 `Shipping`/`DebugGame`、DLC 名称（如有）、输出目录、基线目录、全部日志路径和构建结果。脚本失败时保留并报告原始错误，不猜测修改工程代码。
+7. Windows DLC 成功后，脚本从输出的 `.uplugin` 在 `Plugins` 顶层生成外置 `.upluginmanifest`，并校验 `CanContainContent` 为 `true`。不得使用 `-DLCPakPluginFile`；清单生成失败即打包失败。
+8. 报告配置、输出、基线、日志、外置清单和结果；发布新增 DLC 后提醒用户完全退出并重启应用。失败时保留原始错误。
