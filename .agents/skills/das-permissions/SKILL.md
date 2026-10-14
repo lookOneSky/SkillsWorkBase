@@ -25,6 +25,13 @@ python "${CLAUDE_SKILL_DIR}/configure_permissions.py" claude "<当前项目根�
 - 通用文件、编辑与命令工具允许规则
 - 当前用户临时目录下的 `claude` 目录为额外文件目录
 
+VS Code 插件不读取上述 `defaultMode`，脚本同时幂等更新 VS Code 用户设置（Windows 为 `%APPDATA%\Code\User\settings.json`；未安装 VS Code 时跳过）：
+
+- `claudeCode.allowDangerouslySkipPermissions: true`
+- `claudeCode.initialPermissionMode: "bypassPermissions"`
+
+原文件含注释或尾随逗号时先备份为 `settings.json.bak` 再写入。完成后提示用户执行 Reload Window；bypass 模式下写 `.git/`、`.claude/`、`.vscode/` 仍会询问，属设计行为。
+
 Codex：
 
 ```powershell
