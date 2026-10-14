@@ -15,6 +15,10 @@ SCHEMA_URL = "https://json.schemastore.org/claude-code-settings.json"
 ALLOWED_TOOLS = ("Bash", "PowerShell", "Read", "Edit", "Write", "Glob", "Grep")
 PROXY_URL = "http://127.0.0.1:10808"
 PROXY_VARIABLES = ("HTTP_PROXY", "HTTPS_PROXY")
+VSCODE_SETTINGS = {
+    "claudeCode.allowDangerouslySkipPermissions": True,
+    "claudeCode.initialPermissionMode": "bypassPermissions",
+}
 CODEX_SET_HEADER_RE = re.compile(
     r"^\s*\[\s*shell_environment_policy\s*\.\s*set\s*\]\s*(?:#.*)?$"
 )
@@ -63,6 +67,17 @@ def claude_settings_path(root: Path | None) -> Path:
     return project_root / ".claude" / "settings.local.json"
 
 
+def vscode_settings_path() -> Path | None:
+    if sys.platform == "win32":
+        base = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+    user_dir = base / "Code" / "User"
+    return user_dir / "settings.json" if user_dir.is_dir() else None
+
+
 def codex_config_path(root: Path | None) -> Path:
     if root is None:
         configured_home = os.environ.get("CODEX_HOME")
@@ -87,6 +102,61 @@ def load_json_object(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"设置文件的顶层必须是 JSON 对象：{path}")
     return data
+
+
+def strip_jsonc(text: str) -> str:
+    """去掉 JSONC 注释与尾随逗号，保留字符串内容与行号。"""
+    result: list[str] = []
+    index, length = 0, len(text)
+    while index < length:
+        char = text[index]
+        if char == '"':
+            end = index + 1
+            while end < length and text[end] != '"':
+                end += 2 if text[end] == "\\" else 1
+            result.append(text[index : end + 1])
+            index = end + 1
+        elif text.startswith("//", index):
+            newline = text.find("\n", index)
+            index = length if newline < 0 else newline
+        elif text.startswith("/*", index):
+            close = text.find("*/", index + 2)
+            close = length if close < 0 else close + 2
+            result.append("\n" * text.count("\n", index, close))
+            index = close
+        else:
+            if char in "}]":
+                back = len(result)
+                while back and result[back - 1].isspace():
+                    back -= 1
+                if back and result[back - 1] == ",":
+                    del result[back - 1]
+            result.append(char)
+            index += 1
+    return "".join(result)
+
+
+def load_jsonc_object(path: Path) -> tuple[dict[str, Any], bool]:
+    """返回设置对象，以及原文是否含注释或尾随逗号。"""
+    if not path.exists():
+        return {}, False
+    if not path.is_file():
+        raise ValueError(f"设置路径不是文件：{path}")
+
+    text = path.read_text(encoding="utf-8-sig")
+    stripped = strip_jsonc(text)
+    if not stripped.strip():
+        return {}, stripped != text
+    try:
+        data = json.loads(stripped)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"设置文件不是有效 JSONC：{path}（第 {exc.lineno} 行，第 {exc.colno} 列）"
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise ValueError(f"设置文件的顶层必须是 JSON 对象：{path}")
+    return data, stripped != text
 
 
 def load_toml(path: Path) -> str:
@@ -244,6 +314,22 @@ def configure_claude(root: Path | None) -> Path:
     return path
 
 
+def configure_vscode() -> Path | None:
+    path = vscode_settings_path()
+    if path is None:
+        return None
+    data, has_comments = load_jsonc_object(path)
+    if all(data.get(key) == value for key, value in VSCODE_SETTINGS.items()):
+        return path
+
+    if has_comments:
+        backup = path.with_name(path.name + ".bak")
+        write_text(backup, path.read_text(encoding="utf-8-sig"))
+    data.update(VSCODE_SETTINGS)
+    write_text(path, json.dumps(data, ensure_ascii=False, indent=4) + "\n")
+    return path
+
+
 def configure_codex(root: Path | None) -> Path:
     path = codex_config_path(root)
     rendered = update_codex_config(load_toml(path), path)
@@ -257,6 +343,11 @@ def main() -> int:
         if args.target == "claude":
             path = configure_claude(args.root)
             print(f"已更新 Claude 权限与代理：{path}")
+            vscode_path = configure_vscode()
+            if vscode_path:
+                print(f"已更新 VS Code 插件权限：{vscode_path}（Reload Window 后生效）")
+            else:
+                print("未找到 VS Code 用户设置目录，跳过插件权限配置")
         else:
             path = configure_codex(args.root)
             print(f"已更新 Codex 代理：{path}")
