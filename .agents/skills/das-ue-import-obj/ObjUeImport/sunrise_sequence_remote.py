@@ -14,8 +14,6 @@ import unreal
 
 
 RESULT_MARKER = "DAS_SUNRISE_SEQUENCE="
-CAMERA_KEY_FRAMES = (0, 132, 264, 331, 404, 503, 647, 900)
-TIME_KEY_FRAMES = (0, 132, 359, 477)
 
 
 class SequenceBridgeError(RuntimeError):
@@ -218,27 +216,6 @@ def _add_key(channel, key):
     )
 
 
-def _keys_at_frames(keys, frames, interpolation=None):
-    keys_by_frame = {int(key["frame"]): key for key in keys}
-    sparse_keys = []
-    for frame in frames:
-        if frame not in keys_by_frame:
-            raise SequenceBridgeError("计划缺少关键帧：{}".format(frame))
-        key = dict(keys_by_frame[frame])
-        if interpolation is not None:
-            key["interpolation"] = interpolation(frame)
-        sparse_keys.append(key)
-    return sparse_keys
-
-
-def _camera_interpolation(frame):
-    return "auto" if frame < 647 else "linear"
-
-
-def _time_interpolation(_frame):
-    return "auto"
-
-
 def _add_transform_track(binding, end_frame, keys):
     track = binding.add_track(unreal.MovieScene3DTransformTrack)
     section = track.add_section()
@@ -283,7 +260,7 @@ def _add_camera(sequence, plan):
     filmback = component.get_editor_property("filmback")
     filmback.set_editor_property("sensor_width", float(camera["sensor_width_mm"]))
     filmback.set_editor_property("sensor_height", float(camera["sensor_height_mm"]))
-    # UE 5.3 Python 将相机 setter 暴露为属性写入，统一通过编辑器属性设置。
+    # UE 5.3 的 SetFilmback 仅为 BlueprintSetter，没有独立 Python 方法。
     component.set_editor_property("filmback", filmback)
     focal_length = float(camera["focal_length_mm"])
     lens = component.get_editor_property("lens_settings")
@@ -294,20 +271,17 @@ def _add_camera(sequence, plan):
         float(lens.get_editor_property("max_focal_length")), focal_length
     ))
     component.set_editor_property("lens_settings", lens)
-    component.set_editor_property("current_focal_length", focal_length)
+    component.set_current_focal_length(focal_length)
     component.set_editor_property("constrain_aspect_ratio", True)
     component.set_editor_property("aspect_ratio", float(camera["aspect_ratio"]))
     component.set_editor_property("override_custom_near_clipping_plane", True)
-    component.set_editor_property("custom_near_clipping_plane", float(camera["near_clip_cm"]))
+    component.set_custom_near_clipping_plane(float(camera["near_clip_cm"]))
     # 模型尺度和拉远距离都可变化，避免固定手动焦距使模型失焦。
     focus = component.get_editor_property("focus_settings")
     focus.set_editor_property("focus_method", unreal.CameraFocusMethod.DISABLE)
     component.set_editor_property("focus_settings", focus)
 
-    camera_keys = _keys_at_frames(
-        camera["transform_keys"], CAMERA_KEY_FRAMES, _camera_interpolation
-    )
-    _add_transform_track(binding, int(plan["end_frame"]), camera_keys)
+    _add_transform_track(binding, int(plan["end_frame"]), camera["transform_keys"])
     cut_track = _root_track(sequence, unreal.MovieSceneCameraCutTrack)
     cut_section = cut_track.add_section()
     cut_section.set_range(0, int(plan["end_frame"]))
@@ -336,8 +310,7 @@ def _add_sky(sequence, plan):
     channels = _channels(section)
     if not channels:
         raise SequenceBridgeError("Time of Day 轨道没有可写通道")
-    time_keys = _keys_at_frames(sky["time_keys"], TIME_KEY_FRAMES, _time_interpolation)
-    for key in time_keys:
+    for key in sky["time_keys"]:
         _add_key(channels[0], key)
     return True
 
@@ -349,10 +322,7 @@ def _add_sun(sequence, plan):
     actor = _find_actor(sun["actor_path"])
     binding = sequence.add_possessable(actor)
     binding.set_display_name(sun["display_name"])
-    sun_keys = _keys_at_frames(
-        sun["transform_keys"], TIME_KEY_FRAMES, _time_interpolation
-    )
-    _add_transform_track(binding, int(plan["end_frame"]), sun_keys)
+    _add_transform_track(binding, int(plan["end_frame"]), sun["transform_keys"])
 
 
 def _apply():

@@ -166,13 +166,6 @@ def resolve_actor(kind, folder, created):
     )
     if actor is None:
         raise UdsRemoteError("无法生成 {}".format(spec["label"]))
-    if kind == "sky":
-        try:
-            actor.set_editor_property("Apply Daylight Savings Time", False)
-        except Exception as error:
-            raise UdsRemoteError(
-                "初始化 Apply Daylight Savings Time 失败：{}".format(error)
-            )
     if folder:
         try:
             actor.set_folder_path(folder)
@@ -343,16 +336,16 @@ def metadata_file_for_batch(batch):
     )
 
 
-def finite_coordinate(value, field_name, minimum, maximum, context):
+def finite_coordinate(value, field_name, minimum, maximum, metadata_file):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise UdsRemoteError(
-            "{} 的 {} 不是有效数值：{}".format(context, field_name, value)
+            "{} 的 {} 不是有效数值：{}".format(metadata_file, field_name, value)
         )
     coordinate = float(value)
     if not math.isfinite(coordinate) or coordinate < minimum or coordinate > maximum:
         raise UdsRemoteError(
             "{} 的 {} 超出范围 [{}, {}]：{}".format(
-                context, field_name, minimum, maximum, value
+                metadata_file, field_name, minimum, maximum, value
             )
         )
     return coordinate
@@ -400,160 +393,102 @@ def read_batch_real_origin(batch):
     }
 
 
-def coordinates_from_plan(coordinates):
-    if not isinstance(coordinates, dict):
-        raise UdsRemoteError("计划中的 coordinates 必须是对象。")
-    return {
-        "available": True,
-        "latitude": finite_coordinate(
-            coordinates.get("latitude"), "latitude", -90.0, 90.0, "计划坐标"
-        ),
-        "longitude": finite_coordinate(
-            coordinates.get("longitude"), "longitude", -180.0, 180.0, "计划坐标"
-        ),
-        "source": str(coordinates.get("source") or "input"),
-    }
+def inspect_sunrise_parameters():
+    """只返回 C++ 日出计算器需要的数据；日出时刻不在 Python 中计算。"""
+    actor = find_actor("sky")
+    if actor is not None:
+        try:
+            real_sun_enabled = bool(actor.get_editor_property("Simulate Real Sun"))
+        except Exception as error:
+            raise UdsRemoteError("读取 Simulate Real Sun 失败：{}".format(error))
+        if real_sun_enabled:
+            try:
+                latitude = actor.get_editor_property("Latitude")
+                longitude = actor.get_editor_property("Longitude")
+                time_zone = actor.get_editor_property("Time Zone")
+            except Exception as error:
+                raise UdsRemoteError("读取日出计算参数失败：{}".format(error))
+            return {
+                "latitude": finite_coordinate(
+                    latitude, "Latitude", -90.0, 90.0, "Ultra Dynamic Sky"
+                ),
+                "longitude": finite_coordinate(
+                    longitude, "Longitude", -180.0, 180.0, "Ultra Dynamic Sky"
+                ),
+                "utc_offset_hours": finite_coordinate(
+                    time_zone, "Time Zone", -14.0, 14.0, "Ultra Dynamic Sky"
+                ),
+                "apply_daylight_savings_time": False,
+                "source": "ultra_dynamic_sky",
+            }
 
-
-def coordinates_from_metadata():
+    # 真实 Sun 尚未启用时，随后执行时间任务会用同一批次元数据和东八区初始化 UDS。
     batch = select_current_obj_import_batch()
     origin = read_batch_real_origin(batch)
     return {
-        "available": True,
         "latitude": origin["latitude"],
         "longitude": origin["longitude"],
+        "utc_offset_hours": 8.0,
+        "apply_daylight_savings_time": False,
         "source": "obj_import_metadata",
         "metadata_file": origin["metadata_file"],
         "batch": batch["name"],
     }
 
 
-def coordinates_from_actor(actor):
-    if actor is None:
-        raise UdsRemoteError("当前关卡没有可用的 Ultra Dynamic Sky Actor。")
-    try:
-        latitude = actor.get_editor_property("Latitude")
-        longitude = actor.get_editor_property("Longitude")
-    except Exception as error:
-        raise UdsRemoteError("读取 UDS Actor 经纬度失败：{}".format(error))
-    return {
-        "available": True,
-        "latitude": finite_coordinate(
-            latitude, "Latitude", -90.0, 90.0, "Ultra Dynamic Sky"
-        ),
-        "longitude": finite_coordinate(
-            longitude, "Longitude", -180.0, 180.0, "Ultra Dynamic Sky"
-        ),
-        "source": "ultra_dynamic_sky",
-    }
-
-
-def resolve_scene_coordinates(actor, supplied_coordinates):
-    """上游坐标优先；否则依次回退 DasDataInfo 与 UDS Actor。"""
-    if supplied_coordinates is not None:
-        return coordinates_from_plan(supplied_coordinates)
-
-    errors = []
-    try:
-        return coordinates_from_metadata()
-    except Exception as error:
-        errors.append("DasDataInfo：{}".format(error))
-    try:
-        return coordinates_from_actor(actor)
-    except Exception as error:
-        errors.append("UDS Actor：{}".format(error))
-    raise UdsRemoteError("；".join(errors))
-
-
-def inspect_sunrise_parameters(plan):
-    """只返回 C++ 日出计算器需要的数据；日出时刻不在 Python 中计算。"""
-    actor = find_actor("sky")
-    coordinates = resolve_scene_coordinates(actor, plan.get("coordinates"))
-    real_sun_enabled = False
-    if actor is not None:
-        try:
-            real_sun_enabled = bool(actor.get_editor_property("Simulate Real Sun"))
-        except Exception as error:
-            raise UdsRemoteError("读取 Simulate Real Sun 失败：{}".format(error))
-
-    time_zone = 8.0
-    if real_sun_enabled:
-        try:
-            time_zone = actor.get_editor_property("Time Zone")
-        except Exception as error:
-            raise UdsRemoteError("读取日出时区失败：{}".format(error))
-    coordinates["utc_offset_hours"] = finite_coordinate(
-        time_zone, "Time Zone", -14.0, 14.0, "Ultra Dynamic Sky"
-    )
-    return coordinates
-
-
-def initialize_real_celestial(
-    actor, coordinate_spec, applied, skipped, allow_actor_fallback
-):
-    """始终应用选中的经纬度；真实 Sun 未开启时再初始化整组天体参数。"""
+def initialize_real_celestial_from_obj_import(actor, applied, skipped):
+    """Sun 已开启代表用户配置过；否则一次性初始化整组真实天体参数。"""
     try:
         real_sun_enabled = bool(actor.get_editor_property("Simulate Real Sun"))
     except Exception as error:
         raise UdsRemoteError("读取 Simulate Real Sun 失败：{}".format(error))
+    if real_sun_enabled:
+        skipped.append("真实 Sun 模拟已开启，保留用户调整过的天体配置")
+        return
 
-    # 真实天体初始化只是时间设置的增强项。位置数据不可用时保留现有配置。
-    try:
-        fallback_actor = actor if allow_actor_fallback else None
-        coordinates = resolve_scene_coordinates(fallback_actor, coordinate_spec)
-    except Exception as error:
-        skipped.append(
-            "未读取到场景经纬度，已保留现有真实天体配置：{}".format(error)
-        )
-        return {"available": False, "reason": str(error)}
-
-    values = [
-        ("Latitude", coordinates["latitude"]),
-        ("Longitude", coordinates["longitude"]),
-    ]
-    if not real_sun_enabled:
+    # 先检查 UDS 版本与原点数据，所有前置条件满足后才开始写 Actor。
+    for property_name in REAL_CELESTIAL_PROPERTIES[1:]:
         try:
-            for property_name in REAL_CELESTIAL_PROPERTIES[1:]:
-                actor.get_editor_property(property_name)
+            actor.get_editor_property(property_name)
         except Exception as error:
-            skipped.append("真实天体完整初始化不可用：{}".format(error))
-        else:
-            values.extend(
-                (
-                    ("Time Zone", 8.0),
-                    ("North Yaw", 270.0),
-                    ("Simulate Real Moon", True),
-                    ("Simulate Real Stars", True),
-                    # Sun 最后写；中途失败时下次设置时间仍会重新完成初始化。
-                    ("Simulate Real Sun", True),
-                )
-            )
-    else:
-        skipped.append("真实 Sun 模拟已开启，已保留时区、北向及月亮/星星配置")
+            raise UdsRemoteError("读取 {} 失败：{}".format(property_name, error))
+    batch = select_current_obj_import_batch()
+    origin = read_batch_real_origin(batch)
 
+    values = (
+        ("Latitude", origin["latitude"]),
+        ("Longitude", origin["longitude"]),
+        ("Time Zone", 8.0),
+        ("North Yaw", 270.0),
+        ("Simulate Real Moon", True),
+        ("Simulate Real Stars", True),
+        # Sun 最后写；中途失败时下次设置时间仍会重新完成初始化。
+        ("Simulate Real Sun", True),
+    )
     for property_name, value in values:
         try:
             actor.set_editor_property(property_name, value)
         except Exception as error:
             raise UdsRemoteError("写属性 {} 失败：{}".format(property_name, error))
         applied.append("{}={}".format(property_name, value))
-    applied.append("场景经纬度来源={}".format(coordinates["source"]))
-    return coordinates
+    applied.append(
+        "真实天体来源={}，大纲目录={}，StaticMesh={}，metadata={}".format(
+            batch["name"],
+            batch["folder"] or "<根目录>",
+            batch["static_mesh"],
+            origin["metadata_file"],
+        )
+    )
 
 
-def apply_step(actor, step, applied, skipped, allow_actor_fallback=True):
+def apply_step(actor, step, applied, skipped):
     operation = step.get("op")
     name = step.get("name")
     optional = bool(step.get("optional"))
 
-    if operation == "initialize_real_celestial":
-        return initialize_real_celestial(
-            actor,
-            step.get("coordinates"),
-            applied,
-            skipped,
-            allow_actor_fallback,
-        )
+    if operation == "initialize_real_celestial_from_obj_import":
+        initialize_real_celestial_from_obj_import(actor, applied, skipped)
+        return
 
     if operation == "property":
         try:
@@ -656,22 +591,17 @@ def run_task(task, folder, should_save):
 
     applied = []
     skipped = []
-    scene_coordinates = None
     before = read_values(actor, task.get("reads"))
     with unreal.ScopedEditorTransaction(task.get("transaction") or "das_ue_weather"):
         for step in task.get("steps") or ():
-            step_coordinates = apply_step(
-                actor, step, applied, skipped, allow_actor_fallback=not created
-            )
-            if step_coordinates is not None:
-                scene_coordinates = step_coordinates
+            apply_step(actor, step, applied, skipped)
     after = read_values(actor, task.get("reads"))
 
     saved = []
     if should_save:
         save_actor(actor, saved)
 
-    result = {
+    return {
         "kind": kind,
         "label": ACTOR_KINDS[kind]["label"],
         "created": created,
@@ -683,9 +613,6 @@ def run_task(task, folder, should_save):
         "before": before,
         "after": after,
     }
-    if scene_coordinates is not None:
-        result["scene_coordinates"] = scene_coordinates
-    return result
 
 
 def main():
@@ -696,14 +623,7 @@ def main():
         plan = json.load(stream)
 
     if plan.get("operation") == "inspect_sunrise":
-        try:
-            parameters = inspect_sunrise_parameters(plan)
-        except Exception as error:
-            parameters = {
-                "available": False,
-                "reason": str(error),
-            }
-        return {"ok": True, "sunrise_parameters": parameters}
+        return {"ok": True, "sunrise_parameters": inspect_sunrise_parameters()}
 
     folder = plan.get("outliner_folder") or ""
     should_save = bool(plan.get("save"))
@@ -714,12 +634,7 @@ def main():
     results = []
     for task in tasks:
         results.append(run_task(task, folder, should_save))
-    outcome = {"ok": True, "tasks": results}
-    for result in results:
-        if "scene_coordinates" in result:
-            outcome["scene_coordinates"] = result["scene_coordinates"]
-            break
-    return outcome
+    return {"ok": True, "tasks": results}
 
 
 try:

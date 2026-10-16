@@ -30,8 +30,7 @@
   比例按画面宽、高分别约束，不是面积百分比；长宽比特殊时实际占比可能更小。
 - 采用参考的 15mm 焦距，明确设置 36 × 20.25mm 画幅（16:9），避免默认镜头预设改变视野。
 - 相机高度始终高于合并包围盒最高点；间距与近裁剪面随尺寸调整，支持小模型和大型场景。
-- 相机只写入 8 个主要关键帧，天空时间只写入 4 个关键帧，便于继续编辑。
-  环绕阶段使用自动插值，最终拉远使用线性插值，确保完整入镜后稳定后退。
+- 按帧采样平滑轨迹，再写入线性关键帧，避免稀疏自动切线导致穿模、回转或取景越界。
 
 参考提取记录见 [reference_WDS_Z_Start1.md](reference_WDS_Z_Start1.md)。
 
@@ -58,8 +57,7 @@ UDS 的 `Time of Day` 使用与参考一致的 Double 轨道，保留时间精�
 处于极昼极夜时，C++ 固定回退到 06:00；没有 UDS 时改为驱动主 Directional Light。
 UE 5.3 的 Spawnable 相机模板若无法通过函数取得组件，桥接层会从 `camera_component`
 编辑器属性取回同一组件，不改变 C++ 计划或镜头算法。
-画幅、焦距与近裁剪面统一用 `set_editor_property` 写入 `filmback`、
-`current_focal_length`、`custom_near_clipping_plane`，不依赖 UE 5.3 Python 未暴露的独立 setter 方法。
+画幅使用 `set_editor_property("filmback", ...)` 写入；UE 5.3 未暴露独立的 `set_filmback` Python 方法。
 
 ## 使用
 
