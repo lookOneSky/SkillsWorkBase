@@ -53,6 +53,7 @@ RELEASE_METADATA_RELATIVE = "Metadata/DevelopmentAssetRegistry.bin"
 RELEASE_VERSION_RE = re.compile(r"^\d{12}$")
 OUTPUT_INDEX_SUFFIX_RE = re.compile(r"_\d{2}$")
 DLC_ONLY_PARAMETERS = ("dlcname", "generatepatch", "stagebasereleasepaks", "addpatchlevel")
+DLC_EMBEDDED_PLUGIN_PARAMETERS = ("dlcpakpluginfile",)
 RELEASE_PARAMETERS = (
     "createreleaseversion",
     "createreleaseversionroot",
@@ -507,6 +508,32 @@ def configuration_name(value: str) -> str:
     return aliases[normalized]
 
 
+def canonical_platform_name(value: object) -> str:
+    normalized = normalize_name(value)
+    aliases = {
+        "android": "Android",
+        "win64": "Win64",
+        "windows": "Win64",
+        "windowsnoeditor": "Win64",
+    }
+    return aliases.get(normalized, str(value).strip())
+
+
+def platform_name(value: str) -> str:
+    result = canonical_platform_name(value)
+    normalized = normalize_name(value)
+    if normalized not in {"android", "win64", "windows", "windowsnoeditor"}:
+        raise argparse.ArgumentTypeError("平台仅支持 android 或 win64")
+    return result
+
+
+def cook_flavor_name(value: str) -> str:
+    flavor = str(value).strip().upper()
+    if not flavor or not re.fullmatch(r"[A-Z0-9_]+", flavor):
+        raise argparse.ArgumentTypeError("Cook Flavor 只能包含字母、数字和下划线")
+    return flavor
+
+
 def profile_output_directory(data: dict | None) -> Path | None:
     if not data:
         return None
@@ -568,16 +595,24 @@ def release_version_name(output_directory: Path) -> str:
     return OUTPUT_INDEX_SUFFIX_RE.sub("", output_directory.name)
 
 
-def has_release_payload(directory: Path) -> bool:
-    """基线目录下任一平台目录含开发期资产注册表即视为可用"""
+def has_release_payload(directory: Path, platform: str) -> bool:
+    """基线目录下目标平台（含别名）有开发期资产注册表即视为可用"""
+    direct = directory / platform / RELEASE_METADATA_RELATIVE
+    if direct.is_file():
+        return True
     try:
         platforms = [item for item in directory.iterdir() if item.is_dir()]
     except OSError:
         return False
-    return any((item / RELEASE_METADATA_RELATIVE).is_file() for item in platforms)
+    normalized = normalize_name(canonical_platform_name(platform))
+    return any(
+        normalize_name(canonical_platform_name(item.name)).startswith(normalized)
+        and (item / RELEASE_METADATA_RELATIVE).is_file()
+        for item in platforms
+    )
 
 
-def latest_release_version(output_root: Path) -> str | None:
+def latest_release_version(output_root: Path, platform: str) -> str | None:
     """取打包工作目录中最新的可用基线版本名"""
     root = release_root(output_root)
     if not root.is_dir():
@@ -587,7 +622,7 @@ def latest_release_version(output_root: Path) -> str | None:
         for item in root.iterdir()
         if item.is_dir()
         and RELEASE_VERSION_RE.fullmatch(item.name)
-        and has_release_payload(item)
+        and has_release_payload(item, platform)
     )
     return names[-1] if names else None
 
@@ -596,6 +631,7 @@ def apply_release_parameters(
     parameters: dict,
     output_root: Path,
     output_directory: Path,
+    platform: str,
     dlc: bool,
     dlc_name: str | None = None,
 ) -> None:
@@ -607,11 +643,17 @@ def apply_release_parameters(
     if dlc:
         if dlc_name is None:
             raise PackageError("DLC 模式缺少 DLC 名称")
+        embedded_plugin_parameter_names = {
+            item.casefold() for item in DLC_EMBEDDED_PLUGIN_PARAMETERS
+        }
         for key in list(parameters):
-            if key.casefold() == "dlcname":
+            if (
+                key.casefold() == "dlcname"
+                or key.casefold() in embedded_plugin_parameter_names
+            ):
                 parameters.pop(key)
         parameters["dlcname"] = dlc_name
-        version = latest_release_version(output_root)
+        version = latest_release_version(output_root, platform)
         if not version:
             raise PackageError(
                 "未找到可用基线，请先在同一目录完成一次主干打包：{}".format(
@@ -637,6 +679,9 @@ def build_parameters(
     editor_command: Path,
     engine: Path,
     data: dict | None,
+    platform: str | None,
+    cook_flavor: str,
+    target: str | None,
     dlc: bool,
     dlc_name: str | None = None,
 ) -> dict:
@@ -720,11 +765,54 @@ def build_parameters(
     parameters["unrealexe"] = str(editor_command)
     if (engine / "Build/InstalledBuild.txt").is_file():
         parameters["installed"] = True
-    parameters["stagingdirectory"] = str(output_directory)
+    if platform is not None:
+        parameters["platform"] = [platform]
+
+    effective_platforms = parameters.get("platform") or ["Win64"]
+    if not isinstance(effective_platforms, list):
+        effective_platforms = [effective_platforms]
+    effective_platform = canonical_platform_name(effective_platforms[0])
+
+    if effective_platform == "Android":
+        for key in list(parameters):
+            if key.casefold() in {
+                "addcmdline",
+                "cmdline",
+                "device",
+                "serverconfig",
+                "stagingdirectory",
+            }:
+                parameters.pop(key)
+        parameters.update(
+            {
+                "platform": ["Android"],
+                "target": target or project.stem,
+                "cookflavor": cook_flavor,
+                "skipbuildeditor": True,
+                "skipcookingeditorcontent": True,
+                "archive": True,
+                "archivedirectory": str(output_directory),
+                "build": True,
+                "cook": True,
+                "pak": True,
+                "iostore": True,
+                "compressed": True,
+                "manifests": True,
+                "stage": True,
+                "package": True,
+                "nodebuginfo": True,
+                "nocompile": True,
+                "nocompileeditor": True,
+                "nocompileuat": True,
+            }
+        )
+    else:
+        parameters["stagingdirectory"] = str(output_directory)
     apply_release_parameters(
         parameters,
         output_root,
         output_directory,
+        effective_platform,
         dlc,
         dlc_name,
     )
@@ -770,12 +858,27 @@ def parameter_token(key: str, value: object) -> str | None:
     return "-{}={}".format(key, text)
 
 
-def build_command(run_uat: Path, project: Path, parameters: dict) -> list[str]:
+def build_command(
+    run_uat: Path,
+    project: Path,
+    parameters: dict,
+    platform: str,
+) -> list[str]:
     command = [
         str(run_uat),
         "-ScriptsForProject={}".format(project),
-        "BuildCookRun",
     ]
+    if platform == "Android":
+        command.extend(
+            [
+                "Turnkey",
+                "-command=VerifySdk",
+                "-platform=Android",
+                "-UpdateIfNeeded",
+                "-project={}".format(project),
+            ]
+        )
+    command.append("BuildCookRun")
     for key, value in parameters.items():
         token = parameter_token(key, value)
         if token:
@@ -846,6 +949,104 @@ def run_with_single_cook_retry(
     return run_uat(retry_command, project, retry_log_path), log_paths
 
 
+def find_packaged_dlc_plugin(output_directory: Path, dlc_name: str) -> Path:
+    """在 Windows Stage 输出中定位 DLC 插件描述文件。"""
+    candidates = []
+    expected_name = dlc_name.casefold()
+    for current, _, filenames in os.walk(str(output_directory)):
+        current_path = Path(current)
+        if (
+            current_path.name.casefold() != expected_name
+            or current_path.parent.name.casefold() != "plugins"
+        ):
+            continue
+        for filename in filenames:
+            candidate = current_path / filename
+            if (
+                candidate.suffix.casefold() == ".uplugin"
+                and candidate.stem.casefold() == expected_name
+            ):
+                candidates.append(candidate.resolve())
+
+    candidates = sorted(set(candidates), key=lambda item: str(item).casefold())
+    if not candidates:
+        raise PackageError(
+            "DLC 打包成功，但输出目录中未找到 Plugins\\{}\\{}.uplugin：{}".format(
+                dlc_name,
+                dlc_name,
+                output_directory,
+            )
+        )
+    if len(candidates) > 1:
+        raise PackageError(
+            "DLC 输出中找到多个插件描述文件，无法确定清单目标：{}".format(
+                ", ".join(str(item) for item in candidates)
+            )
+        )
+    return candidates[0]
+
+
+def write_external_dlc_plugin_manifest(
+    output_directory: Path,
+    dlc_name: str,
+) -> Path:
+    """读取已 Stage 的 .uplugin，并在 Plugins 顶层写出外置清单。"""
+    plugin_path = find_packaged_dlc_plugin(output_directory, dlc_name)
+    descriptor = read_json(plugin_path)
+    if descriptor.get("CanContainContent") is not True:
+        raise PackageError(
+            "DLC 插件描述文件的 CanContainContent 必须为 true：{}".format(
+                plugin_path
+            )
+        )
+
+    plugins_directory = plugin_path.parent.parent
+    application_directory = plugins_directory.parent
+    platform_directory = application_directory.parent
+    try:
+        staged_plugin_path = plugin_path.relative_to(platform_directory).as_posix()
+    except ValueError as exc:
+        raise PackageError(
+            "无法计算 DLC 插件的 Stage 相对路径：{}".format(plugin_path)
+        ) from exc
+
+    manifest_path = plugins_directory / "{}.upluginmanifest".format(plugin_path.stem)
+    manifest = {
+        "Contents": [
+            {
+                "File": "../../../{}".format(staged_plugin_path),
+                "Descriptor": descriptor,
+            }
+        ]
+    }
+
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            dir=str(plugins_directory),
+            prefix="{}.".format(manifest_path.name),
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary_path = Path(stream.name)
+            json.dump(manifest, stream, ensure_ascii=False, indent=2)
+            stream.write("\n")
+        os.replace(str(temporary_path), str(manifest_path))
+    except OSError as exc:
+        if temporary_path:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise PackageError(
+            "无法写入 DLC 外置插件清单：{} ({})".format(manifest_path, exc)
+        ) from exc
+    return manifest_path
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("project", nargs="?", help=".uproject 或包含它的工程文件夹")
@@ -858,6 +1059,22 @@ def parse_args(argv=None):
         help="构建配置，默认 shipping；debug 使用 DebugGame",
     )
     parser.add_argument("--engine-root", help="Unreal 安装根目录、Engine 目录或 RunUAT.bat")
+    parser.add_argument(
+        "--platform",
+        type=platform_name,
+        metavar="android|win64",
+        help="目标平台；未指定时继承 .ulp2，未匹配配置时默认 win64",
+    )
+    parser.add_argument(
+        "--cook-flavor",
+        type=cook_flavor_name,
+        default="ASTC",
+        help="Android Cook Flavor，默认 ASTC",
+    )
+    parser.add_argument(
+        "--target",
+        help="Android 构建 Target；默认使用 .uproject 文件名",
+    )
     parser.add_argument(
         "--dlc",
         action="store_true",
@@ -906,10 +1123,22 @@ def main(argv=None) -> int:
             editor_command,
             engine,
             profile_data,
+            args.platform,
+            args.cook_flavor,
+            args.target,
             args.dlc,
             dlc_name,
         )
-        command = build_command(run_uat_path, project, parameters)
+        effective_platform_values = parameters.get("platform") or ["Win64"]
+        if not isinstance(effective_platform_values, list):
+            effective_platform_values = [effective_platform_values]
+        effective_platform = canonical_platform_name(effective_platform_values[0])
+        command = build_command(
+            run_uat_path,
+            project,
+            parameters,
+            effective_platform,
+        )
 
         print("[工程] {}".format(project))
         print("[配置文件] {}".format(profile_path or "未匹配，使用默认参数"))
@@ -924,6 +1153,10 @@ def main(argv=None) -> int:
                 )
             )
         print("[构建配置] {}".format(args.configuration))
+        print("[目标平台] {}".format(effective_platform))
+        if effective_platform == "Android":
+            print("[Android Cook Flavor] {}".format(args.cook_flavor))
+            print("[Android SDK] 打包前由 Turnkey VerifySdk 检查并按需更新")
         print("[输出目录] {}".format(output_directory))
         if args.dlc:
             print(
@@ -938,6 +1171,8 @@ def main(argv=None) -> int:
                 )
             )
         print("[命令] {}".format(subprocess.list2cmdline(command)))
+        if args.dlc and effective_platform == "Win64":
+            print("[DLC 后处理] 打包成功后生成 Plugins 顶层外置 .upluginmanifest")
         if args.dry_run:
             print("[结果] dry-run，未执行打包")
             return 0
@@ -962,6 +1197,13 @@ def main(argv=None) -> int:
                     ", ".join(str(item) for item in log_paths),
                 )
             )
+        if args.dlc and effective_platform == "Win64":
+            manifest_path = write_external_dlc_plugin_manifest(
+                output_directory,
+                dlc_name or "",
+            )
+            print("[外置插件清单] {}".format(manifest_path))
+            print("[运行提示] 发布新增 DLC 后必须完全退出并重新启动应用，才能读取新清单")
         print("[结果] 打包成功：{}".format(output_directory))
         return 0
     except (OSError, PackageError) as exc:

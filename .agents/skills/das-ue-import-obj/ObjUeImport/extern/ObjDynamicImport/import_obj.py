@@ -44,6 +44,7 @@ _BATCH_MATERIAL_DEFAULTS = {
 
 # 批次目录下汇总元数据、批次母材质与关卡的目录名，obj_ue_import.exe 读的是同一个键。
 _DATA_INFO_DIRECTORY_DEFAULT = "DasDataInfo"
+_TILES_DIRECTORY = "Tiles"
 
 
 def _load_json(config_path):
@@ -124,6 +125,12 @@ def _asset_name_for_source(source_file, config):
     if not isinstance(asset_prefix, str):
         raise ObjImportError("asset_name_prefix 必须是字符串")
     return _sanitize_asset_name(asset_prefix + source_stem)
+
+
+def _tile_destination_path(destination_path, source_file):
+    return "{}/{}/{}".format(
+        destination_path, _TILES_DIRECTORY, _sanitize_asset_name(source_file.stem)
+    )
 
 
 def _validate_unique_asset_names(source_files, config):
@@ -666,6 +673,14 @@ def main(import_runner=None):
         destination_path = _normalize_game_directory(
             config.get("destination_root"), batch_timestamp
         )
+        if _data_info_path(config, destination_path).casefold() == (
+            destination_path + "/" + _TILES_DIRECTORY
+        ).casefold():
+            raise ObjImportError(
+                "data_info_directory 不能与瓦块目录 {} 同名".format(
+                    _TILES_DIRECTORY
+                )
+            )
         parent_path = _normalize_object_path(config.get("parent_material"))
         duplicate_parent, material_root = _load_batch_material_config(config)
         if duplicate_parent:
@@ -680,7 +695,11 @@ def main(import_runner=None):
         for index, source_file in enumerate(source_files, start=1):
             pending_packages.extend(
                 import_runner(
-                    source_file, config, destination_path, parent_path, unload_after_import
+                    source_file,
+                    config,
+                    _tile_destination_path(destination_path, source_file),
+                    parent_path,
+                    unload_after_import,
                 )
             )
             if unload_after_import and index % cleanup_interval == 0:

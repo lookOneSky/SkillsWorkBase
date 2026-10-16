@@ -2,6 +2,8 @@
     "time": "",
     "time_of_day": null,
     "sunrise": false,
+    "latitude": null,
+    "longitude": null,
 
     "weather": "",
 

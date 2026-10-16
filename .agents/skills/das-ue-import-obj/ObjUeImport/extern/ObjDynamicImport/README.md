@@ -1,8 +1,9 @@
 # OBJ 动态导入
 
 `import_obj_interchange.py` 是 `obj_ue_import.exe` 通过 `PythonScriptCommandlet` 执行的 UE 侧载荷，
-将单个 OBJ 或目录内的全部 OBJ 及其引用的 MTL、纹理导入项目 Content。一次运行只创建一个
-时间批次目录，所有瓦块资产直接存放在该目录内。新版在普通 `DasMaterialObj` 与天气版
+将单个 OBJ 或目录内的全部 OBJ 及其引用的 MTL、纹理导入项目 Content。一次运行创建一个
+时间批次目录，每个 OBJ 的网格、材质实例和纹理分别存放在 `Tiles/<OBJ文件名>/` 内。
+新版在普通 `DasMaterialObj` 与天气版
 `Weather/DasMaterialObj` 之间选择，并统一复制到项目 `Content/DasMaterialObj`；命中标准
 Ultra Dynamic Weather 目录时还会配置插件与 Core Redirect。旧 `DasMaterial`、
 `Weather/DasMaterial` 与 `import_obj.py` 均继续随包保留，供旧版流程使用。
@@ -27,19 +28,32 @@ Ultra Dynamic Weather 目录时还会配置插件与 Core Redirect。旧 `DasMat
 3. `validate_parent_material_parameters=true` 时，导入前校验母材质必须提供纹理参数
    `DiffuseColorMap`。Interchange 会把传统 OBJ/MTL 的 `map_Kd` 写入该参数。
 4. Interchange 固定关闭同名材质复用，保证按 `parent_material` 新建材质实例。
+   默认 JSON 开启“计算加权法线”、Nanite 和 Lightmap UV；其他未写入 JSON 的网格参数沿用当前 UE 引擎的
+   `InterchangeGenericAssetsPipeline` 类初始值。UE 5.3.2 默认重新计算法线与切线。
 5. `require_parent_material_instances=true` 会在导入后校验每个材质槽均为母材质实例；OBJ 应提供有效的
    `.mtl`，材质贴图路径应相对于 OBJ/MTL 可访问。
 6. `build_static_mesh_ddc=true` 会在每个 OBJ 导入后等待 StaticMesh 构建及 DDC 写入完成，
    再保存资产。
+   导入生成的每个 StaticMesh 都会设置为“使用复杂碰撞作为简单碰撞”。
+   UE 5.3 的 OBJ Interchange 翻译器会把引用的 JPG/JPEG 解码，使纹理资产的源数据保存为 PNG。
+   工具会从纹理的源文件记录找到原始 JPG/JPEG，使用 `TextureFactory` 更新同名纹理资产；
+   UE 默认的 `TextureImporter.RetainJpegFormat=True` 会保留 JPEG 源数据。
+   `OBJ_IMPORT_JPEG_RETAINED=N` 表示该 OBJ 更新的 JPEG 纹理数。这减少的是项目里纹理 `.uasset` 的源数据体积，
+   不改变打包后的运行时纹理格式。已有批次需重新导入才能应用。
 7. `cleanup.unload_after_import` 默认 `true`，每导入完一批就调用 `UnloadPackages` 卸载这批资产并回收内存；
    `cleanup.interval` 默认 `1`，表示攒多少个 OBJ 卸载一次。导入的资产带 `RF_Standalone`，常规 GC 不会回收，
    关掉这项时内存会随 OBJ 数量线性上涨。`import_task.save=false` 时不会卸载，避免丢掉没保存的改动。
-8. `import_task` 继续直接映射 UE Python 属性；Interchange 的网格、材质与纹理选项固定在
-   `import_obj_interchange.py` 中，不从 JSON 覆盖。
+8. `import_task` 继续直接映射 UE Python 属性；`common_meshes_properties`、`mesh_pipeline`、
+   `animation_pipeline` 中填写的属性也直接覆盖对应 Interchange 管线属性。OBJ 网格默认启用
+   `build_nanite` 和 `generate_lightmap_u_vs`，自定义 JSON 可以显式覆盖；其他未填写的属性保持
+   UE 类初始值。默认 JSON 还覆盖 `compute_weighted_normals=true`；删除该字段后，
+   UE 5.3.2 类初始值为 `false`。命名、统一缩放与母材质选项仍由工具设置。
 9. OBJ 文件名中的数字负号会编码为 `neg`，数字正号仍按原规则省略。例如
    `Tile_+0000_-0010.obj` 会生成 `SM_Tile_0000_neg0010`，而
    `Tile_+0000_+0010.obj` 仍生成 `SM_Tile_0000_0010`。导入前会检查清洗后的静态模型资产名，
-   如仍有重名则在逐个导入 OBJ 前中止并列出冲突文件。
+   如仍有重名则在逐个导入 OBJ 前中止并列出冲突文件。子目录名使用同一套文件名清洗规则，
+   因此不同瓦块可各自使用同名材质和纹理。
+   `data_info_directory` 不能设为 `Tiles`，以免与瓦块目录冲突。
 
 当前使用的 OBJ/MTL 映射：`map_Kd` -> `DiffuseColorMap`。其余 Interchange 参数保持 UE 默认命名，
 当前母材质只依赖 `DiffuseColorMap`。
@@ -73,7 +87,7 @@ das_ue_launcher.exe --ue-launch "D:\Project\MyProject.uproject"
 
 - UE 目录：`/Game/ObjImport/YYYYMMDD_HHMMSS`
 - 物理目录：`<项目>/Content/ObjImport/YYYYMMDD_HHMMSS`
-- 目录内直接包含本批次全部瓦块资产，不再为每个瓦块创建子目录
+- 每个瓦块使用独立子目录，例如 `Tiles/Tile_0000_neg0010/`，其网格、材质实例和纹理都位于该目录
 - 静态模型前缀：`SM_`
 - 默认材质目录：普通版 `DasMaterialObj` 或天气版 `Weather/DasMaterialObj`，每次运行覆盖复制到项目 `Content/DasMaterialObj`
 - 兼容资源：旧 `DasMaterial` 与 `Weather/DasMaterial` 继续随工具发布，但新版流程不加载、不覆盖项目里的旧材质目录

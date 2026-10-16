@@ -91,7 +91,7 @@ UDS 也可以位于插件子目录，例如标志资产为 `/DasAssetLibrary/Ult
 
 没有标志资产或只有同名但目录结构不兼容的资产时，不修改工程插件与重定向，使用普通 `DasMaterialObj` 继续导入。检测到兼容天气资产但 `Weather/DasMaterialObj` 尚未补齐时会明确报资源缺失；检测 EXE 缺失、执行失败、输出损坏或出现多个兼容天气资产根目录也会终止导入。
 
-导入结果默认落在 `/Game/ObjImport/<YYYYMMDD_HHMMSS>`，对应物理目录 `<项目>\Content\ObjImport\<YYYYMMDD_HHMMSS>`；静态模型前缀 `SM_`。文件名中的数字负号编码为 `neg`，数字正号仍按原规则省略（例如 `Tile_+0000_-0010.obj` -> `SM_Tile_0000_neg0010`）。工具会在导入前检查最终静态模型资产名是否重复，避免 `replace_existing=true` 静默覆盖。每个 OBJ 导入后会等待 StaticMesh 构建及 DDC 写入完成，再保存资产。
+导入结果默认落在 `/Game/ObjImport/<YYYYMMDD_HHMMSS>`，对应物理目录 `<项目>\Content\ObjImport\<YYYYMMDD_HHMMSS>`；每个 OBJ 的网格、材质实例和纹理位于独立的 `Tiles/<OBJ文件名>/` 子目录，同名材质不会跨 Tile 相互覆盖。静态模型前缀 `SM_`。文件名中的数字负号编码为 `neg`，数字正号仍按原规则省略（例如 `Tile_+0000_-0010.obj` -> `Tiles/Tile_0000_neg0010/SM_Tile_0000_neg0010`）。工具会在导入前检查最终静态模型资产名是否重复，避免 `replace_existing=true` 静默覆盖。每个 OBJ 导入后会等待 StaticMesh 构建及 DDC 写入完成，再保存资产。
 
 ## 批次元数据（DasDataInfo）
 
@@ -156,7 +156,8 @@ UDS 也可以位于插件子目录，例如标志资产为 `/DasAssetLibrary/Ult
 `import_obj.json`（其余字段的含义见 `extern\ObjDynamicImport\README.md`）：
 
 - `destination_root`、`asset_name_prefix`、`parent_material`、`build_static_mesh_ddc`、`import_task` 由 `import_obj_interchange.py` 使用；`build_static_mesh_ddc` 默认为 `true`；
-- Interchange 固定导入 StaticMesh、材质实例与纹理：不合并网格、不删除退化面、生成 Lightmap UV、启用 Nanite、按 `100.0` 统一缩放。传统 OBJ/MTL 的 `map_Kd` 由 UE 映射到母材质固定纹理参数 `DiffuseColorMap`，配置文件不再提供纹理参数名替换；
+- OBJ 由 Interchange 导入为 StaticMesh；`common_meshes_properties`、`mesh_pipeline`、`animation_pipeline` 中的 JSON 属性覆盖对应导入参数，未填写的参数保持 UE `InterchangeGenericAssetsPipeline` 类初始值。默认 JSON 仅显式开启加权法线；UE 5.3.2 类初始值是重新计算法线与切线、关闭加权法线和 Nanite、不删除退化面、生成 Lightmap UV。工具仍按 `100.0` 统一缩放，并把传统 OBJ/MTL 的 `map_Kd` 映射到母材质固定纹理参数 `DiffuseColorMap`；
+- OBJ 导入生成的 JPEG 纹理会从原始 `.jpg` / `.jpeg` 文件再次更新同名纹理资产，避免 UE 5.3 的 OBJ 翻译器把源数据解码后保存为较大的 PNG。UE 默认 `TextureImporter.RetainJpegFormat=True`；日志 `OBJ_IMPORT_JPEG_RETAINED=N` 给出每个 OBJ 处理的数量。该优化针对项目中的纹理资产源数据，不改变打包后的纹理大小，已有批次需重新导入；
 - `data_info_directory`（缺省 `DasDataInfo`，只能是一级目录名）是批次目录下收 `metadata.json`、批次母材质与关卡的子目录，程序与脚本读的是同一个键；
 - `batch_parent_material.enabled`（缺省 `true`）决定是否为本批次复制一份独立的母材质，`batch_parent_material.destination_root`（缺省空串 = 批次目录下的 `data_info_directory`；填绝对目录时支持 `{timestamp}` / `{date}`）是副本的存放目录。整段 `batch_parent_material` 可以省略；
 - `enabled_plugins` 拼成 `-EnablePlugins=`，`commandlet_arguments` 原样追加到命令行。默认配置不再包含 `-DisablePlugins`；自定义配置显式提供时仍原样保留。程序会自动补齐缺失的 `-unattended`、`-nosplash`、`-stdout`、`-FullStdOutLogOutput`、`-UTF8Output`、`-AllowCommandletRendering`——少了前几个会看不到日志或卡在无人应答的弹窗上，少了 `-UTF8Output` 则脚本里的中文会被逐字输出成 `?`；少了 `-AllowCommandletRendering` 则 `FApp::CanEverRender()` 为 false，`UTexture::CachePlatformData` 直接跳过，纹理不会写入 DDC，编辑器下次打开会把所有纹理重建一遍（Interchange 导入脚本启动时会检查这个参数，缺失直接报错）；
