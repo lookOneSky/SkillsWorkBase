@@ -2,9 +2,12 @@
 
 from __future__ import print_function
 
+import codecs
+import hashlib
 import json
 import os
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -46,6 +49,21 @@ _BATCH_MATERIAL_DEFAULTS = {
 _DATA_INFO_DIRECTORY_DEFAULT = "DasDataInfo"
 _TILES_DIRECTORY = "Tiles"
 
+_REFERENCE_TOKEN_PATTERN = re.compile(r'"([^"]*)"|\'([^\']*)\'|(\S+)')
+_MAP_OPTION_ARGUMENTS = {
+    "-blendu": 1,
+    "-blendv": 1,
+    "-boost": 1,
+    "-mm": 2,
+    "-texres": 1,
+    "-clamp": 1,
+    "-bm": 1,
+    "-imfchan": 1,
+    "-type": 1,
+    "-cc": 1,
+}
+_VARIABLE_MAP_OPTIONS = {"-o", "-s", "-t"}
+
 
 def _load_json(config_path):
     try:
@@ -56,6 +74,217 @@ def _load_json(config_path):
     if not isinstance(config, dict):
         raise ObjImportError("JSON 根节点必须是对象：{}".format(config_path))
     return config
+
+
+def _detect_obj_text_encoding(path):
+    """Accept UTF-8 first, then GBK, without loading large OBJ files into memory."""
+    for encoding in ("utf-8-sig", "gbk"):
+        decoder = codecs.getincrementaldecoder(encoding)(errors="strict")
+        try:
+            with path.open("rb") as source:
+                while True:
+                    chunk = source.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    decoder.decode(chunk, final=False)
+                decoder.decode(b"", final=True)
+            return encoding
+        except UnicodeDecodeError:
+            continue
+        except OSError as error:
+            raise ObjImportError("无法读取 OBJ/MTL 文件 {}：{}".format(path, error))
+    raise ObjImportError(
+        "OBJ/MTL 文件既不是有效 UTF-8，也不是有效 GBK：{}".format(path)
+    )
+
+
+def _reference_tokens(value):
+    return [
+        next(group for group in match.groups() if group is not None)
+        for match in _REFERENCE_TOKEN_PATTERN.finditer(value)
+    ]
+
+
+def _resolve_obj_reference(base_directory, reference):
+    reference_path = Path(reference.strip().strip('"').strip("'"))
+    if not reference_path.is_absolute():
+        reference_path = base_directory / reference_path
+    try:
+        return reference_path.resolve()
+    except (OSError, RuntimeError):
+        return reference_path.absolute()
+
+
+def _obj_material_references(path, line):
+    content = line.split("#", 1)[0].strip()
+    parts = content.split(None, 1)
+    if len(parts) != 2 or parts[0].casefold() != "mtllib":
+        return []
+    value = parts[1].strip()
+    if not value:
+        return []
+
+    # First accept the complete remainder as a filename (which supports spaces).
+    whole_reference = _resolve_obj_reference(path.parent, value)
+    if whole_reference.is_file():
+        return [whole_reference]
+
+    # Otherwise treat it as the standard space-separated list of MTL names.
+    references = []
+    for token in _reference_tokens(value):
+        candidate = _resolve_obj_reference(path.parent, token)
+        if candidate.is_file():
+            references.append(candidate)
+    return references
+
+
+def _material_texture_reference(path, line):
+    content = line.split("#", 1)[0].strip()
+    parts = content.split(None, 1)
+    if len(parts) != 2:
+        return None
+    directive, value = parts[0].casefold(), parts[1]
+    if not (
+        directive.startswith("map_")
+        or directive in ("bump", "disp", "decal", "norm", "refl")
+    ):
+        return None
+
+    tokens = _reference_tokens(value.strip())
+    index = 0
+    while index < len(tokens) and tokens[index].startswith("-"):
+        option = tokens[index].casefold()
+        if option in _VARIABLE_MAP_OPTIONS:
+            index += 1
+            consumed = 0
+            while index < len(tokens) and consumed < 3:
+                try:
+                    float(tokens[index])
+                except ValueError:
+                    break
+                index += 1
+                consumed += 1
+            if consumed == 0:
+                break
+            continue
+
+        argument_count = _MAP_OPTION_ARGUMENTS.get(option)
+        if argument_count is None:
+            break
+        index += 1 + argument_count
+
+    texture_name = " ".join(tokens[index:]).strip()
+    if not texture_name:
+        return None
+    return _resolve_obj_reference(path.parent, texture_name)
+
+
+def _read_obj_material_dependencies(source_file):
+    source_file = Path(source_file).resolve()
+    text_encodings = {source_file: _detect_obj_text_encoding(source_file)}
+    material_files = set()
+    texture_files = set()
+
+    with source_file.open(
+        "r", encoding=text_encodings[source_file], newline=None
+    ) as obj:
+        for line in obj:
+            material_files.update(_obj_material_references(source_file, line))
+
+    for material_file in material_files:
+        text_encodings[material_file] = _detect_obj_text_encoding(material_file)
+        with material_file.open(
+            "r", encoding=text_encodings[material_file], newline=None
+        ) as material:
+            for line in material:
+                texture_file = _material_texture_reference(material_file, line)
+                if texture_file is not None and texture_file.is_file():
+                    texture_files.add(texture_file)
+
+    return text_encodings, texture_files
+
+
+def _file_sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while True:
+            chunk = source.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.digest()
+
+
+def _write_utf8_copy(source_path, destination_path, source_encoding):
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = destination_path.with_name(destination_path.name + ".tmp")
+    try:
+        with source_path.open("r", encoding=source_encoding, newline="") as source:
+            with temporary_path.open("w", encoding="utf-8", newline="") as destination:
+                shutil.copyfileobj(source, destination, length=1024 * 1024)
+        os.replace(str(temporary_path), str(destination_path))
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
+
+
+def _prepare_obj_source_for_import(source_file):
+    """Make a persistent UTF-8 staging copy only when OBJ/MTL contains GBK text."""
+    source_file = Path(source_file).resolve()
+    text_encodings, texture_files = _read_obj_material_dependencies(source_file)
+    gbk_files = [
+        path for path, encoding in text_encodings.items() if encoding == "gbk"
+    ]
+    if not gbk_files:
+        return source_file
+
+    source_paths = set(text_encodings) | texture_files
+    try:
+        dependency_root = Path(
+            os.path.commonpath([str(path.parent) for path in source_paths])
+        )
+    except ValueError as error:
+        raise ObjImportError(
+            "OBJ、MTL 与贴图位于不同磁盘，无法保留相对路径进行 UTF-8 预处理：{}".format(
+                source_file
+            )
+        ) from error
+
+    cache_key = hashlib.sha256()
+    for path in sorted(source_paths, key=lambda value: str(value).casefold()):
+        try:
+            relative_path = os.path.relpath(str(path), str(dependency_root))
+        except ValueError as error:
+            raise ObjImportError("无法建立 OBJ 编码缓存相对路径：{}".format(path)) from error
+        cache_key.update(relative_path.casefold().encode("utf-8"))
+        cache_key.update(_file_sha256(path))
+
+    cache_root = (
+        Path(unreal.Paths.project_saved_dir())
+        / "ObjImportUtf8"
+        / cache_key.hexdigest()
+    )
+    for path, encoding in text_encodings.items():
+        relative_path = os.path.relpath(str(path), str(dependency_root))
+        _write_utf8_copy(path, cache_root / relative_path, encoding)
+        if encoding == "gbk":
+            unreal.log(
+                "OBJ_IMPORT_ENCODING=GBK->UTF-8,source={},staged={}".format(
+                    path, cache_root / relative_path
+                )
+            )
+    for path in texture_files:
+        relative_path = os.path.relpath(str(path), str(dependency_root))
+        destination_path = cache_root / relative_path
+        if (
+            not destination_path.is_file()
+            or _file_sha256(destination_path) != _file_sha256(path)
+        ):
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(path), str(destination_path))
+
+    staged_source = cache_root / os.path.relpath(str(source_file), str(dependency_root))
+    return staged_source
 
 
 def _require_commandlet_rendering():
@@ -508,11 +737,37 @@ def _unload_packages(packages):
         )
 
 
+def _use_full_precision_uvs(static_meshes):
+    mesh_subsystem = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
+    if mesh_subsystem is None:
+        raise ObjImportError("无法获取 StaticMeshEditorSubsystem，不能开启全精度 UV")
+
+    for static_mesh in static_meshes:
+        lod_count = mesh_subsystem.get_lod_count(static_mesh)
+        if lod_count <= 0:
+            raise ObjImportError(
+                "静态模型没有可设置全精度 UV 的 LOD：{}".format(
+                    static_mesh.get_path_name()
+                )
+            )
+        for lod_index in range(lod_count):
+            build_settings = mesh_subsystem.get_lod_build_settings(
+                static_mesh, lod_index
+            )
+            if build_settings.get_editor_property("use_full_precision_u_vs"):
+                continue
+            build_settings.set_editor_property("use_full_precision_u_vs", True)
+            # The setter marks the mesh dirty and requests a rebuild.
+            mesh_subsystem.set_lod_build_settings(
+                static_mesh, lod_index, build_settings
+            )
+
+
 def _wait_for_static_mesh_derived_data(static_meshes):
     derived_data = []
     for static_mesh in static_meshes:
         mesh_path = static_mesh.get_path_name()
-        # The FBX importer has already invoked UStaticMesh::Build. Both methods
+        # Import and LOD settings changes have requested mesh builds. Both methods
         # below read RenderData, which forces UE's async static-mesh compiler to
         # finish. FStaticMeshRenderData::Cache uses a blocking DDC put, so the
         # derived data request has completed before these calls return.
@@ -558,7 +813,8 @@ def _run_import(source_file, config, destination_path, parent_path, collect_pack
     task_config = config.get("import_task", {})
     import_task = unreal.AssetImportTask()
     _set_properties(import_task, task_config, "import_task")
-    import_task.set_editor_property("filename", str(source_file))
+    import_source_file = _prepare_obj_source_for_import(source_file)
+    import_task.set_editor_property("filename", str(import_source_file))
     import_task.set_editor_property("destination_path", destination_path)
     import_task.set_editor_property("destination_name", asset_name)
     import_task.set_editor_property("options", import_ui)
@@ -583,6 +839,7 @@ def _run_import(source_file, config, destination_path, parent_path, collect_pack
     static_meshes, material_instances = _verify_import(
         imported_objects, parent_material, require_parent_instances
     )
+    _use_full_precision_uvs(static_meshes)
     derived_data = (
         _wait_for_static_mesh_derived_data(static_meshes)
         if build_static_mesh_ddc

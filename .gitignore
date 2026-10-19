@@ -4,3 +4,6 @@ __pycache__/
 
 # 临时目录
 .tmp/
+
+# Skill 打包产物
+.agents/skills/**/*.zip
