@@ -211,7 +211,8 @@ def _run_interchange_import(
     task_config = config.get("import_task", {})
     import_task = unreal.AssetImportTask()
     legacy._set_properties(import_task, task_config, "import_task")
-    import_task.set_editor_property("filename", str(source_file))
+    import_source_file = legacy._prepare_obj_source_for_import(source_file)
+    import_task.set_editor_property("filename", str(import_source_file))
     import_task.set_editor_property("destination_path", destination_path)
     import_task.set_editor_property(
         "options", _create_interchange_options(asset_name, parent_path, config)
@@ -239,6 +240,7 @@ def _run_interchange_import(
         imported_objects, parent_material, require_parent_instances
     )
     _use_complex_collision_as_simple(static_meshes)
+    legacy._use_full_precision_uvs(static_meshes)
     derived_data = (
         legacy._wait_for_static_mesh_derived_data(static_meshes)
         if build_static_mesh_ddc

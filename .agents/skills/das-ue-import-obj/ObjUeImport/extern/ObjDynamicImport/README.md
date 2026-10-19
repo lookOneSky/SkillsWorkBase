@@ -32,9 +32,14 @@ Ultra Dynamic Weather 目录时还会配置插件与 Core Redirect。旧 `DasMat
    `InterchangeGenericAssetsPipeline` 类初始值。UE 5.3.2 默认重新计算法线与切线。
 5. `require_parent_material_instances=true` 会在导入后校验每个材质槽均为母材质实例；OBJ 应提供有效的
    `.mtl`，材质贴图路径应相对于 OBJ/MTL 可访问。
+   导入前会逐个尝试 UTF-8 与 GBK 解码 OBJ 和关联 MTL。检测到 GBK 时，会将 OBJ、MTL 与其引用贴图复制到项目
+   `Saved/ObjImportUtf8/` 下的持久 UTF-8 缓存，原始数据保持不变；缓存保留供 Unreal 后续重导。转换文件会输出
+   `OBJ_IMPORT_ENCODING=GBK->UTF-8` 日志。
 6. `build_static_mesh_ddc=true` 会在每个 OBJ 导入后等待 StaticMesh 构建及 DDC 写入完成，
    再保存资产。
    导入生成的每个 StaticMesh 都会设置为“使用复杂碰撞作为简单碰撞”。
+   Interchange 与旧版导入流程都会在导入后为每个 StaticMesh 的全部 LOD 开启
+   `Use Full Precision UVs`（全精度 UV），应用后再保存；已有批次需重新导入才能应用。
    UE 5.3 的 OBJ Interchange 翻译器会把引用的 JPG/JPEG 解码，使纹理资产的源数据保存为 PNG。
    工具会从纹理的源文件记录找到原始 JPG/JPEG，使用 `TextureFactory` 更新同名纹理资产；
    UE 默认的 `TextureImporter.RetainJpegFormat=True` 会保留 JPEG 源数据。
