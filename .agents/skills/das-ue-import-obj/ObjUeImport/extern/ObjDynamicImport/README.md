@@ -40,14 +40,21 @@ Ultra Dynamic Weather 目录时还会配置插件与 Core Redirect。旧 `DasMat
    导入生成的每个 StaticMesh 都会设置为“使用复杂碰撞作为简单碰撞”。
    Interchange 与旧版导入流程都会在导入后为每个 StaticMesh 的全部 LOD 开启
    `Use Full Precision UVs`（全精度 UV），应用后再保存；已有批次需重新导入才能应用。
+   命令行模式不会像交互式编辑器一样自动加载 `StaticMeshEditor` 模块；脚本在导入前检查
+   `StaticMeshEditorSubsystem`，缺失时通过 `unreal.load_module("StaticMeshEditor")` 加载模块并生成
+   Python 类型。加载失败、类型仍缺失或无法获取子系统时，在复制批次母材质和导入模型前报错退出。
    UE 5.3 的 OBJ Interchange 翻译器会把引用的 JPG/JPEG 解码，使纹理资产的源数据保存为 PNG。
    工具会从纹理的源文件记录找到原始 JPG/JPEG，使用 `TextureFactory` 更新同名纹理资产；
    UE 默认的 `TextureImporter.RetainJpegFormat=True` 会保留 JPEG 源数据。
+   Interchange 首次导入时暂不保存资产；恢复 JPEG 后逐个保存纹理及其余资产，避免首次保存时把解码后的纹理压成 PNG。
+   启用纹理修改且设定 `virtual_texture_streaming=false` 时，导入前先关闭本次进程的虚拟纹理自动启用；
+   `max_texture_size` 与 `virtual_texture_streaming` 在首次导入完成后、JPEG 重导前应用，减少最终保存阶段的纹理构建开销。
    `OBJ_IMPORT_JPEG_RETAINED=N` 表示该 OBJ 更新的 JPEG 纹理数。这减少的是项目里纹理 `.uasset` 的源数据体积，
    不改变打包后的运行时纹理格式。已有批次需重新导入才能应用。
-7. `cleanup.unload_after_import` 默认 `true`，每导入完一批就调用 `UnloadPackages` 卸载这批资产并回收内存；
+7. `cleanup.unload_after_import` 默认 `true`，每导入完一批先回收 Interchange 导入任务，再调用 `UnloadPackages` 卸载资产并检查是否仍有对象存活；
    `cleanup.interval` 默认 `1`，表示攒多少个 OBJ 卸载一次。导入的资产带 `RF_Standalone`，常规 GC 不会回收，
-   关掉这项时内存会随 OBJ 数量线性上涨。`import_task.save=false` 时不会卸载，避免丢掉没保存的改动。
+   关掉这项时内存会随 OBJ 数量线性上涨。卸载失败会立即报错，不继续导入导致内存耗尽。
+   `import_task.save=false` 时不会卸载，避免丢掉没保存的改动。
 8. `import_task` 继续直接映射 UE Python 属性；`common_meshes_properties`、`mesh_pipeline`、
    `animation_pipeline` 中填写的属性也直接覆盖对应 Interchange 管线属性。OBJ 网格默认启用
    `build_nanite` 和 `generate_lightmap_u_vs`，自定义 JSON 可以显式覆盖；其他未填写的属性保持
