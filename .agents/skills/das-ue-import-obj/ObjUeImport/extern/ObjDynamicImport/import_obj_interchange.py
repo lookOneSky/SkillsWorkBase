@@ -126,6 +126,59 @@ def _use_complex_collision_as_simple(static_meshes):
         )
 
 
+def _configured_texture_properties():
+    config_path = os.environ.get("UE_TEXTURE_CONFIG")
+    if not config_path:
+        return {}
+    texture_config = legacy._load_json(Path(config_path))
+    properties = texture_config.get("texture_properties", {})
+    if not isinstance(properties, dict):
+        raise legacy.ObjImportError("纹理配置的 texture_properties 必须是 JSON 对象")
+    return properties
+
+
+def _configure_virtual_texture_import(properties):
+    if properties.get("virtual_texture_streaming") is not False:
+        return
+    unreal.SystemLibrary.execute_console_command(None, "r.VT.EnableAutoImport 0")
+    if unreal.SystemLibrary.get_console_variable_int_value(
+        "r.VT.EnableAutoImport"
+    ) != 0:
+        raise legacy.ObjImportError("无法关闭导入阶段的虚拟纹理自动启用")
+
+
+def _apply_import_texture_properties(imported_objects, properties):
+    for texture in imported_objects:
+        if not isinstance(texture, unreal.Texture2D):
+            continue
+        changed = False
+        for property_name in ("max_texture_size", "virtual_texture_streaming"):
+            if property_name not in properties:
+                continue
+            value = properties[property_name]
+            if texture.get_editor_property(property_name) == value:
+                continue
+            if not changed:
+                texture.modify()
+                changed = True
+            texture.set_editor_property(property_name, value)
+
+
+def _save_imported_objects(imported_objects):
+    # Save JPEG-backed textures one at a time after their sources are restored.
+    textures = [
+        value for value in imported_objects if isinstance(value, unreal.Texture2D)
+    ]
+    other_assets = [
+        value for value in imported_objects if not isinstance(value, unreal.Texture2D)
+    ]
+    for asset in textures + other_assets:
+        if not unreal.EditorAssetLibrary.save_loaded_asset(
+            asset, only_if_is_dirty=False
+        ):
+            raise legacy.ObjImportError("资产保存失败：{}".format(asset.get_path_name()))
+
+
 def _retain_jpeg_texture_sources(imported_objects):
     """Reimport OBJ-linked JPEGs through TextureFactory to keep their source bytes.
 
@@ -194,6 +247,8 @@ def _retain_jpeg_texture_sources(imported_objects):
 def _run_interchange_import(
     source_file, config, destination_path, parent_path, collect_packages
 ):
+    texture_properties = _configured_texture_properties()
+    _configure_virtual_texture_import(texture_properties)
     asset_name = legacy._asset_name_for_source(source_file, config)
     validate_parameters = legacy._validate_boolean_config(
         config, "validate_parent_material_parameters", True
@@ -211,6 +266,10 @@ def _run_interchange_import(
     task_config = config.get("import_task", {})
     import_task = unreal.AssetImportTask()
     legacy._set_properties(import_task, task_config, "import_task")
+    # Interchange saves during import_asset_tasks when save=True. At that point
+    # JPEGs still contain decoded PNG source data, causing a large compression
+    # spike. Save once below, after TextureFactory has restored JPEG sources.
+    import_task.set_editor_property("save", False)
     import_source_file = legacy._prepare_obj_source_for_import(source_file)
     import_task.set_editor_property("filename", str(import_source_file))
     import_task.set_editor_property("destination_path", destination_path)
@@ -235,6 +294,7 @@ def _run_interchange_import(
             "Interchange OBJ 导入失败，任务没有返回任何资产：{}".format(source_file)
         )
 
+    _apply_import_texture_properties(imported_objects, texture_properties)
     _retain_jpeg_texture_sources(imported_objects)
     static_meshes, material_instances = legacy._verify_import(
         imported_objects, parent_material, require_parent_instances
@@ -247,17 +307,7 @@ def _run_interchange_import(
         else []
     )
     if task_config.get("save", True):
-        for static_mesh in static_meshes:
-            if not unreal.EditorAssetLibrary.save_loaded_asset(
-                static_mesh, only_if_is_dirty=False
-            ):
-                raise legacy.ObjImportError(
-                    "静态模型保存失败：{}".format(static_mesh.get_path_name())
-                )
-        if not unreal.EditorAssetLibrary.save_directory(
-            destination_path, only_if_is_dirty=True, recursive=True
-        ):
-            raise legacy.ObjImportError("资产保存失败：{}".format(destination_path))
+        _save_imported_objects(imported_objects)
 
     physical_directory = os.path.abspath(
         os.path.join(

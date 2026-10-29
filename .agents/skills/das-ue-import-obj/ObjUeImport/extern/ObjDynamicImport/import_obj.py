@@ -3,6 +3,7 @@
 from __future__ import print_function
 
 import codecs
+import gc
 import hashlib
 import json
 import os
@@ -706,41 +707,91 @@ def _duplicate_parent_material(parent_path, destination_root, batch_timestamp):
 
 
 def _collect_packages(imported_objects):
-    packages = []
-    seen_names = set()
+    packages = {}
     for imported_object in imported_objects:
         package = imported_object.get_outermost()
         if not package:
             continue
         package_name = package.get_name()
-        if package_name in seen_names:
-            continue
-        seen_names.add(package_name)
-        packages.append(package)
-    return packages
+        if package_name not in packages:
+            packages[package_name] = (package, [])
+        packages[package_name][1].append(imported_object.get_path_name())
+    return list(packages.values())
 
 
-def _unload_packages(packages):
-    """Free imported assets; plain collect_garbage keeps RF_Standalone assets alive."""
-    if not packages:
+def _unload_packages(package_entries):
+    """Destroy import tasks before unloading their assets, then verify the result."""
+    if not package_entries:
         return
 
-    try:
-        unloaded, message = unreal.EditorLoadingAndSavingUtils.unload_packages(packages)
-    except Exception as error:
-        unreal.log_warning("OBJ_IMPORT_UNLOAD_SKIPPED={}".format(error))
-        return
+    packages = [package for package, _ in package_entries]
+    for attempt in range(2):
+        # AssetImportTask owns Interchange's FImportResult (an FGCObject).
+        # A synchronous task also keeps its imported objects alive until GC.
+        gc.collect()
+        unreal.SystemLibrary.collect_garbage()
 
-    if not unloaded:
-        unreal.log_warning(
-            "OBJ_IMPORT_UNLOAD_SKIPPED={}".format(message or "资产仍被引用")
+        try:
+            unloaded, message = unreal.EditorLoadingAndSavingUtils.unload_packages(
+                packages
+            )
+        except Exception as error:
+            raise ObjImportError("OBJ_IMPORT_UNLOAD_FAILED={}".format(error)) from error
+
+        if not unloaded:
+            raise ObjImportError(
+                "OBJ_IMPORT_UNLOAD_FAILED={}".format(message or "资产仍被引用")
+            )
+
+        # UnloadPackages may report success while GC restores RF_Standalone
+        # on assets still reachable from another object.
+        surviving_paths = [
+            path
+            for _, paths in package_entries
+            for path in paths
+            if unreal.find_object(None, path) is not None
+        ]
+        if not surviving_paths:
+            unreal.log("OBJ_IMPORT_UNLOADED={}".format(len(package_entries)))
+            return
+        if attempt == 0:
+            unreal.log_warning(
+                "OBJ_IMPORT_UNLOAD_RETRY={}".format(len(surviving_paths))
+            )
+
+    raise ObjImportError(
+        "OBJ_IMPORT_UNLOAD_FAILED=仍有 {} 个资产存活：{}".format(
+            len(surviving_paths), ", ".join(surviving_paths[:5])
         )
+    )
+
+
+def _get_static_mesh_editor_subsystem():
+    subsystem_class = getattr(unreal, "StaticMeshEditorSubsystem", None)
+    if subsystem_class is None:
+        # Commandlets skip the interactive editor's StaticMeshEditor module load.
+        # load_module also generates the module's reflected Python types.
+        try:
+            unreal.load_module("StaticMeshEditor")
+        except Exception as error:
+            raise ObjImportError(
+                "无法加载 StaticMeshEditor 模块，不能开启全精度 UV：{}".format(error)
+            ) from error
+        subsystem_class = getattr(unreal, "StaticMeshEditorSubsystem", None)
+        if subsystem_class is None:
+            raise ObjImportError(
+                "加载 StaticMeshEditor 模块后仍缺少 StaticMeshEditorSubsystem "
+                "Python API，不能开启全精度 UV"
+            )
+
+    mesh_subsystem = unreal.get_editor_subsystem(subsystem_class)
+    if mesh_subsystem is None:
+        raise ObjImportError("无法获取 StaticMeshEditorSubsystem，不能开启全精度 UV")
+    return mesh_subsystem
 
 
 def _use_full_precision_uvs(static_meshes):
-    mesh_subsystem = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
-    if mesh_subsystem is None:
-        raise ObjImportError("无法获取 StaticMeshEditorSubsystem，不能开启全精度 UV")
+    mesh_subsystem = _get_static_mesh_editor_subsystem()
 
     for static_mesh in static_meshes:
         lod_count = mesh_subsystem.get_lod_count(static_mesh)
@@ -925,6 +976,8 @@ def main(import_runner=None):
         _validate_unique_asset_names(source_files, config)
         unload_after_import, cleanup_interval = _load_cleanup_config(config)
         _require_commandlet_rendering()
+        # Validate this required API before duplicating materials or importing assets.
+        _get_static_mesh_editor_subsystem()
         _register_legacy_material_mount()
         batch_timestamp = _resolve_batch_timestamp(config)
         destination_path = _normalize_game_directory(
