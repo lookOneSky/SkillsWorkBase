@@ -8,6 +8,7 @@ from github_common import (
     DEFAULT_CONFIG,
     WorkflowError,
     assert_remote_compatible,
+    commit_staged_changes,
     configure_identity,
     ensure_create_branch,
     ensure_remote,
@@ -19,7 +20,6 @@ from github_common import (
     print_success,
     run,
     run_git,
-    stage_and_commit,
     verify_account,
 )
 
@@ -73,7 +73,7 @@ def action() -> None:
     assert_remote_compatible(path, remote, config.host, slug, config.env)
     ensure_create_branch(path, "main", config.env)
     configure_identity(path, config)
-    stage_and_commit(path, config.env)
+    commit_staged_changes(path, config.env)
 
     command = ["gh", "repo", "create", slug, "--private"]
     if args.description:

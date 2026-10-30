@@ -9,6 +9,7 @@ from github_common import (
     DEFAULT_CONFIG,
     WorkflowError,
     assert_remote_compatible,
+    commit_staged_changes,
     configure_identity,
     ensure_remote,
     ensure_tools,
@@ -23,7 +24,6 @@ from github_common import (
     remote_branch_exists,
     run,
     run_git,
-    stage_and_commit,
     validate_branch,
     verify_account,
 )
@@ -120,7 +120,7 @@ def action() -> None:
     )
 
     configure_identity(path, config)
-    stage_and_commit(path, config.env)
+    commit_staged_changes(path, config.env)
     run_git(
         ["push", "-u", fork_remote, branch],
         cwd=path,

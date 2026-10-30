@@ -1,16 +1,23 @@
 ---
 name: das-github-repository-workflow
-description: 用户要求创建私有仓库、fork 后首次推送，或为 Unreal Engine 工程获取 Das 插件时使用。
+description: 用户要求 Git 提交、创建私有仓库、fork 后首次推送，或为 Unreal Engine 工程获取 Das 插件时使用。
 user-invocable: false
 ---
 
 # GitHub 仓库工作流
 
-使用可配置的 GitHub 账号完成仓库首次提交，或为 Unreal Engine 工程获取 Das 插件。
+处理 Git 提交，使用可配置的 GitHub 账号完成仓库首次提交，或为 Unreal Engine 工程获取 Das 插件。
+
+## 提交范围与说明
+
+- 仅提交本次相关改动，提交前核对，保留无关改动及其暂存状态。
+- 提交说明与内容一致；AI 提交消息末尾空一行，独立落款 `AI`。
 
 ## 仓库首次提交
 
-创建与 fork 流程仅用于仓库首次提交，已有历史的仓库不走此流程。提交消息固定为 `init`。
+创建与 fork 流程仅用于仓库首次提交，已有历史的仓库不走此流程。提交标题固定为 `init`，末尾按上述规则添加 `AI` 落款。
+
+新目录先执行 `git init -b main`。执行首次提交脚本前，按上述规则准备并核对暂存内容；脚本只提交暂存内容，不自动暂存文件，暂存区为空时停止。
 
 1. 直接填写同级 `github-account.json` 中的 `username`、Git 身份及认证方式。优先通过 `token_env` 引用环境变量；无法使用环境变量时才填写 `token`。
 2. 创建私有仓库并推送到 `main`：

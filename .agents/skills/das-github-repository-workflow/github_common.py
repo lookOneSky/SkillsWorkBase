@@ -233,15 +233,13 @@ def ensure_create_branch(path: Path, branch: str, env: Mapping[str, str]) -> Non
         run_git(["branch", "-m", branch], cwd=path, env=env)
 
 
-def stage_and_commit(path: Path, env: Mapping[str, str]) -> None:
-    run_git(["add", "-A"], cwd=path, env=env)
+def commit_staged_changes(path: Path, env: Mapping[str, str]) -> None:
     diff = run_git(["diff", "--cached", "--quiet"], cwd=path, env=env, check=False)
     if diff.returncode not in (0, 1):
         raise WorkflowError("无法检查暂存区状态。")
-    if diff.returncode == 1:
-        run_git(["commit", "-m", "init"], cwd=path, env=env)
-    else:
-        run_git(["commit", "--allow-empty", "-m", "init"], cwd=path, env=env)
+    if diff.returncode == 0:
+        raise WorkflowError("暂存区为空；请先按文件或差异块暂存并核对本次任务相关的改动。")
+    run_git(["commit", "-m", "init", "-m", "AI"], cwd=path, env=env)
 
 
 def parse_repository(value: str) -> tuple[Optional[str], str]:
