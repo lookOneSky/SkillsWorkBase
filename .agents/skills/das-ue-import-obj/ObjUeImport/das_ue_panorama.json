@@ -1,0 +1,41 @@
+{
+  "_说明": "常用参数由窗口覆盖；其余设置在这里修改。引擎由 .uproject 自动定位。空 map_asset 使用当前已打开关卡，空 render_preset 不继承预设。",
+  "map_asset": "",
+  "render_preset": "",
+  "output": {
+    "image_format": "png",
+    "filename_prefix": "Panorama",
+    "zero_pad": 6,
+    "overwrite": false
+  },
+  "panorama": {
+    "horizontal_steps": 8,
+    "vertical_steps": 3,
+    "follow_camera_orientation": true,
+    "allocate_history_per_pane": true,
+    "horizontal_fov": 0.0,
+    "vertical_fov": 0.0
+  },
+  "quality": {
+    "spatial_samples": 2,
+    "temporal_samples": 1,
+    "anti_aliasing": "none",
+    "engine_warm_up_frames": 60,
+    "render_warm_up_frames": 60,
+    "render_during_warm_up": false
+  },
+  "color": { "disable_tone_curve": false },
+  "console_variables": {
+    "r.MotionBlurQuality": 0,
+    "r.DefaultFeature.AutoExposure": 0,
+    "r.ScreenPercentage": 100
+  },
+  "video": {
+    "filename": "Panorama360.mp4",
+    "codec": "libx265",
+    "preset": "medium",
+    "crf": 18,
+    "ffmpeg": "",
+    "spherical_metadata": true
+  }
+}

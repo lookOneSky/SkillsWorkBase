@@ -1,0 +1,5 @@
+{
+  "_说明": "玉真观原脚本的关卡与画质预设。正式渲染前在编辑器打开此关卡；不依赖原参考视频。",
+  "map_asset": "/Game/Dev_ZJY/Cesium/C_WDS/WDS_Map/YZG_Map/YZG.YZG",
+  "render_preset": "/Game/SEQ/18Camer0930"
+}

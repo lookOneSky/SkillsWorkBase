@@ -1,0 +1,4 @@
+FFmpeg binary supplied by the existing repository tools/video_frames_ffmpeg installation.
+Distributor: https://www.gyan.dev/ffmpeg/builds/
+Corresponding source/build information: https://github.com/GyanD/codexffmpeg
+FFmpeg source: https://ffmpeg.org/download.html
