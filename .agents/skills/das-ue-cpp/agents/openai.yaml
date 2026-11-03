@@ -1,4 +1,4 @@
 interface:
   display_name: "Das UE C++"
-  short_description: "规范 Unreal Engine C++ Plan 中的变更代码展示格式"
-  default_prompt: "使用 $das-ue-cpp 为这项 Unreal Engine C++ 修改编写以代码为主的 Plan。"
+  short_description: "在所有模式下通过 Markdown 报告展示 Unreal Engine C++ 代码改动"
+  default_prompt: "使用 $das-ue-cpp 处理这项 Unreal Engine C++ 修改，并以包含 cpp 代码块和定位上下文的 .md 报告说明代码改动。"
