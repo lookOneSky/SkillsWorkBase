@@ -43,6 +43,8 @@ exec(open(r"D:\CodeAll\ObjDivideUtils\extern\ModifyTexture\modify_texture.py", e
 ## 实现要点
 
 - 先用 `AssetRegistry` 的 `find_asset_data` 判类型，非 `Texture2D` 的资产**不加载**，避免为了判断类型把整个目录读进内存；类解析不出来才放行，交给 `isinstance` 兜底。
+- 纹理通过 `unreal.load_asset` 重新加载。UE 5.3 的 `EditorAssetSubsystem.load_asset` 在卸载后遇到仍存活的空包时只查内存对象，可能返回空；直接加载接口会重新读取包。
+- 加载与类型检查放在错误处理内；加载失败、异常和类型不符均计入扫描数及失败清单，不再被 `continue` 隐藏。
 - 卸载走 `EditorLoadingAndSavingUtils.unload_packages`，而不是 `collect_garbage`——后者对 `RF_Standalone` 资产无效。卸载前会把 Python 侧的引用置空，否则对象会被钉住。
 - 收集与卸载放在循环的 `finally` 里：属性没变化的分支会 `continue`，放在循环体末尾的话这条路径永远攒不满一批，等于没清理。
 - 必须排在建关卡之前：关卡 Actor 会一直引用网格、材质与纹理，先建关卡会让这里的分批卸载全部落空。

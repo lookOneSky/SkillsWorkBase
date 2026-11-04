@@ -210,12 +210,15 @@ def modify_texture_properties(
             if not _is_texture_asset(asset_subsystem, asset_path):
                 continue
 
-            asset = asset_subsystem.load_asset(asset_path)
-            if not isinstance(asset, unreal.Texture2D):
-                continue
-
             texture_count += 1
+            asset = None
             try:
+                # UE 5.3 AssetData.GetAsset skips reloading an existing empty
+                # package after UnloadPackages. StaticLoadObject reloads it.
+                asset = unreal.load_asset(asset_path)
+                if not isinstance(asset, unreal.Texture2D):
+                    raise RuntimeError("无法加载 Texture2D 资产")
+
                 changed_properties = _modify_texture(asset, texture_properties)
                 if not changed_properties:
                     continue
@@ -243,7 +246,9 @@ def modify_texture_properties(
             finally:
                 # 收集与卸载都必须待在 finally 里：上面几条 continue 会跳过循环体末尾，
                 # 放在外面的话「属性没变」这条路径永远攒不满一批，等于没清理。
-                package = asset.get_outermost() if unload_processed else None
+                package = (
+                    asset.get_outermost() if unload_processed and asset is not None else None
+                )
                 asset = None  # 断开 Python 引用，否则卸载时对象会被钉住。
                 if unload_processed:
                     if package:

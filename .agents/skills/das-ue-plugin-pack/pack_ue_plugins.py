@@ -7,6 +7,7 @@ import locale
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import uuid
@@ -470,13 +471,24 @@ def warning_repairs(output, selected, dry_run=False):
     return changes
 
 
+def remove_readonly_entry(function, path, exc_info):
+    error = exc_info[1]
+    if not isinstance(error, PermissionError):
+        raise error
+    mode = os.stat(path).st_mode
+    if mode & stat.S_IWRITE:
+        raise error
+    os.chmod(path, mode | stat.S_IWRITE)
+    function(path)
+
+
 def remove_package_dir(package_dir, session_dir):
     if not package_dir.exists():
         return
     resolved = package_dir.resolve()
     if resolved.parent != session_dir.resolve():
         raise PackError("拒绝清理时间目录之外的路径：{}".format(resolved))
-    shutil.rmtree(str(resolved))
+    shutil.rmtree(str(resolved), onerror=remove_readonly_entry)
 
 
 def packaged_plugin_root(package_dir, plugin):
@@ -548,7 +560,7 @@ def remove_installed_plugin(destination):
     if destination.is_symlink():
         destination.unlink()
     elif destination.is_dir():
-        shutil.rmtree(str(destination))
+        shutil.rmtree(str(destination), onerror=remove_readonly_entry)
     else:
         destination.unlink()
     print("[删除旧插件] {}".format(destination))
@@ -567,7 +579,7 @@ def install_plugin(packaged_root, plugin, install_root):
     except Exception:
         if os.path.lexists(str(staging)):
             if staging.is_dir() and not staging.is_symlink():
-                shutil.rmtree(str(staging))
+                shutil.rmtree(str(staging), onerror=remove_readonly_entry)
             else:
                 staging.unlink()
         raise

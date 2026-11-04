@@ -191,7 +191,7 @@ def _retain_jpeg_texture_sources(imported_objects):
     retained_count = 0
     processed_paths = set()
     asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
-    for texture in imported_objects:
+    for index, texture in enumerate(imported_objects):
         if not isinstance(texture, unreal.Texture2D):
             continue
         texture_path = texture.get_path_name()
@@ -230,14 +230,22 @@ def _retain_jpeg_texture_sources(imported_objects):
         asset_tools.import_asset_tasks([import_task])
 
         reimported_objects = legacy._collect_imported_objects(import_task)
-        if not any(
-            value.get_path_name() == texture_path for value in reimported_objects
-        ):
+        reimported_texture = next(
+            (
+                value
+                for value in reimported_objects
+                if isinstance(value, unreal.Texture2D)
+                and value.get_path_name() == texture_path
+            ),
+            None,
+        )
+        if reimported_texture is None:
             raise legacy.ObjImportError(
                 "JPEG 纹理未能更新原资产：{}；源文件：{}".format(
                     texture_path, source_file
                 )
             )
+        imported_objects[index] = reimported_texture
         retained_count += 1
 
     if retained_count:
@@ -294,8 +302,10 @@ def _run_interchange_import(
             "Interchange OBJ 导入失败，任务没有返回任何资产：{}".format(source_file)
         )
 
-    _apply_import_texture_properties(imported_objects, texture_properties)
     _retain_jpeg_texture_sources(imported_objects)
+    # TextureFactory restores only some existing settings in UE 5.3; in
+    # particular MaxTextureSize returns to its default during JPEG reimport.
+    _apply_import_texture_properties(imported_objects, texture_properties)
     static_meshes, material_instances = legacy._verify_import(
         imported_objects, parent_material, require_parent_instances
     )

@@ -169,6 +169,7 @@ UDS 也可以位于插件子目录，例如标志资产为 `/DasAssetLibrary/Ult
 `modify_texture.json`：
 
 - `texture_properties` 支持 `max_texture_size` 与 `virtual_texture_streaming`，至少要有一项；
+- 两项属性在 JPEG 重导完成后应用，避免覆盖导入将尺寸上限重置为 0；后置批处理使用直接加载接口，加载失败会计入失败清单并使该阶段报错；
 - `recursive` 缺省为 `true`；
 - `cleanup.unload_processed`（缺省 `true`）在处理过程中分批卸载已改完的纹理，`cleanup.interval`（缺省 `50`）是攒多少张卸载一次。整段 `cleanup` 可以省略；调小更省内存、但 GC 更频繁，4K 纹理建议 30~50；
 - `content_directory` 每次运行都会被覆盖成本批次的导入目录。

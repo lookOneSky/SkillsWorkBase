@@ -48,7 +48,8 @@ Ultra Dynamic Weather 目录时还会配置插件与 Core Redirect。旧 `DasMat
    UE 默认的 `TextureImporter.RetainJpegFormat=True` 会保留 JPEG 源数据。
    Interchange 首次导入时暂不保存资产；恢复 JPEG 后逐个保存纹理及其余资产，避免首次保存时把解码后的纹理压成 PNG。
    启用纹理修改且设定 `virtual_texture_streaming=false` 时，导入前先关闭本次进程的虚拟纹理自动启用；
-   `max_texture_size` 与 `virtual_texture_streaming` 在首次导入完成后、JPEG 重导前应用，减少最终保存阶段的纹理构建开销。
+   `max_texture_size` 与 `virtual_texture_streaming` 在 JPEG 重导完成后应用，并使用重导返回的纹理对象继续验证和保存；
+   避免 UE 5.3 `TextureFactory` 覆盖纹理时将尺寸上限重置为 0。
    `OBJ_IMPORT_JPEG_RETAINED=N` 表示该 OBJ 更新的 JPEG 纹理数。这减少的是项目里纹理 `.uasset` 的源数据体积，
    不改变打包后的运行时纹理格式。已有批次需重新导入才能应用。
 7. `cleanup.unload_after_import` 默认 `true`，每导入完一批先回收 Interchange 导入任务，再调用 `UnloadPackages` 卸载资产并检查是否仍有对象存活；

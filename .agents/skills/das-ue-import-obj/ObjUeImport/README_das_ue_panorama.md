@@ -2,6 +2,9 @@
 
 原生 C++17 / Qt Widgets 桌面程序，CMake 目标为 `das_ue_panorama`。只需选择 Level Sequence 的本地 `.uasset` 文件，程序自动向父目录查找 `.uproject`、定位 Unreal 引擎并启动或复用编辑器，即可渲染单目 360°、2:1 等距柱状图片，可继续合成带全景标识的 MP4。不需要系统 Python，内置桥接脚本由 UE 自带 Python 执行。
 
+已有全景 PNG 帧时，使用新增的独立 Qt 程序 `das_panorama_video.exe`，直接选择帧目录合成 MP4。
+它与 UE 渲染器共享帧检查、视频编码和全景元数据实现，详见 [全景帧转 MP4](README_video.md)。
+
 ## 使用
 
 1. 启动发布目录中的 `das_ue_panorama.exe`，独立发布位置为 `dist/DasUePanorama/das_ue_panorama.exe`。
@@ -24,14 +27,16 @@
 | JSON 字段 | 用途 |
 | --- | --- |
 | `map_asset` | 空字符串使用当前已打开的已保存关卡；指定时要求编辑器已打开该关卡 |
+| `editor_arguments` | 可选启动参数数组，仅新启动编辑器时生效；关卡路径放在开关之前，例如 `["/Game/MyMap", "-ddc=InstalledNoZenLocalFallback"]` 用于 Zen 本地缓存不可用时回退并加载拍摄关卡 |
 | `render_preset` | 可选 MRQ 主配置资产，继承 Game Overrides、纹理与光照等；只覆盖全景通道、输出和明确设置 |
+| `game_overrides.texture_streaming` | 可选 `none` / `disabled` / `fully_load`；省略保留预设或 MRQ 默认值。`fully_load` 完整加载使用中的纹理，减少无关贴图占用；正式输出前应检查预览清晰度 |
 | `output` | 图片格式、前缀、编号补零、是否覆盖已有文件；默认不覆盖 |
 | `panorama` | 水平/垂直分片、相机朝向、独立历史、每分片 FOV；0 表示引擎默认 |
 | `quality` | 空间/时间采样、抗锯齿、引擎和渲染预热 |
 | `color` / `console_variables` | 色调曲线、渲染时的数值控制台变量 |
 | `video.filename` | MP4 文件名，不含目录 |
 | `video.codec` / `preset` / `crf` | 默认 libx265 / medium / 18；可选 libx264 |
-| `video.ffmpeg` | 留空查找 EXE 同目录、主仓库工具目录、PATH；相对路径以 JSON 所在目录为准 |
+| `video.ffmpeg` | 默认留空，自动使用 EXE 同目录的随包版本；源码运行时向上查找 `tools/ffmpeg/ffmpeg.exe`。可选覆盖路径以 JSON 所在目录为准 |
 | `video.spherical_metadata` | 默认写入单目等距柱状全景元数据，播放器需支持该格式 |
 
 玉真观可直接在“高级配置”选择部署包的 `examples/YZG.render.json`，继承原脚本的关卡与画质预设。内容如下，不修改原资产：
@@ -55,9 +60,9 @@ EXR 仅供图片工作流，合成视频要求 PNG。MP4 合成先写独立临�
 extern\DasUePanorama\build_release.bat --test
 ```
 
-构建目录为 `build-ue-panorama`，部署目录为 `dist/DasUePanorama`。脚本复用主仓库的工具链定位，将 Qt 依赖和已有的 FFmpeg 一起部署。已有高级配置不会被重新构建覆盖。可通过主仓库已有的 `QT_ROOT`、`CMAKE_EXE`、`NINJA_EXE` 指定工具位置。
+构建目录为 `build-ue-panorama`，部署目录为 `dist/DasUePanorama`。脚本复用主仓库的工具链定位，将 Qt 依赖和仓库固定版本的 FFmpeg 一起部署。已有高级配置不会被重新构建覆盖。可通过主仓库已有的 `QT_ROOT`、`CMAKE_EXE`、`NINJA_EXE` 指定工具位置。
 
-主仓库的 `publish_obj_tools.bat` 和 `build_release.bat` 也会显式开启全景目标，将程序、Qt 依赖、默认配置、配置示例、`examples` 与使用说明收进各自的发布目录和 ZIP；常用工具包同时执行 `--help` 自检并将完整目录镜像到已配置的 Skill 工作区。三种发布方式共用配置与 FFmpeg 收集逻辑：优先使用主仓库 `tools/video_frames_ffmpeg/ffmpeg.exe`，其次查找 PATH，并收集可用的许可文件与来源说明。未找到 FFmpeg 时保留图片渲染能力并提示配置 `video.ffmpeg`。独立 OBJ MCP 和天气 MCP 发布显式关闭全景 GUI 构建。
+主仓库的 `publish_obj_tools.bat` 和 `build_release.bat` 也会显式开启全景目标，将程序、Qt 依赖、默认配置、配置示例、`examples` 与使用说明收进各自的发布目录和 ZIP；常用工具包同时执行 `--help` 自检并将完整目录镜像到已配置的 Skill 工作区。所有发布入口固定收集主仓库 `tools/ffmpeg/ffmpeg.exe`，在程序旁放置 `ffmpeg.exe`、`LICENSE_FFmpeg.txt`、`FFmpeg_SOURCE.txt`，根据程序所在目录定位，发布目录可以整体搬迁。该二进制使用 Git LFS 保存，首次克隆后先运行 `git lfs install` 和 `git lfs pull`；缺失文件或未下载的 LFS 指针会阻止发布。独立 OBJ MCP 和天气 MCP 发布显式关闭全景 GUI 构建。
 
 也可独立配置与构建该子目录，或从主仓库以 `OBJ_DIVIDER_BUILD_UE_PANORAMA=ON` 启用；需要的共享代码只来自主仓库 Qt 工具，不调用 Unreal 编译器或构建 Unreal 工程。
 
@@ -68,6 +73,10 @@ cmake --build build-ue-panorama
 
 命令行支持 `--sequence`、`--output`、`--config` 预填界面；本地序列无需 `--project`，未指定输出目录时使用项目 `Saved/Panorama360`。`--project` 用于 `/Game/...` 和 Copy Reference。`--validate` 只检查本地参数与自动定位的引擎，不启动 UE；`--check` 连接 UE 验证实际序列与 MRQ 参数，不渲染。`--smoke-test <png>` 保存窗口截图后退出，用于部署验证，也不启动 UE。
 
+`--render` 直接执行完整渲染并等待结果后退出，`--preview` 直接输出起始序列帧的 2048×1024 全景预览；两者均使用相同的 EXE 渲染流程，无需操作窗口。添加 `--frames-only` 可只输出图片，跳过 MP4 合成。`--validate`、`--check`、`--render` 和 `--preview` 互斥。PowerShell 中调用必须接 `Tee-Object` 等管道以等待这个 GUI EXE 退出并保留日志。
+
+客户端意外退出而 UE 仍在渲染时，可用 `--monitor-run "<项目 Saved/DasUePanorama/任务目录>"` 接管现有 PNG 图片任务。接管使用原请求、计划及编辑器实例，只等待与校验，不重新提交渲染或启动编辑器；完成后重新核对全部 PNG 的连续编号和尺寸，再恢复 `result.json` 完成状态。原失败结果另存为 `result.before_monitor_*.json`。已有客户端的任务锁会阻止重复接管。该模式与其他执行模式互斥，不合成视频。动态状态文件被短暂占用时会在 5 秒内重试，静态配置错误仍立即报错。
+
 ```powershell
 das_ue_panorama.exe --sequence "D:/Projects/MyProject/Content/SEQ/MySequence.uasset" --validate
 ```
@@ -75,3 +84,5 @@ das_ue_panorama.exe --sequence "D:/Projects/MyProject/Content/SEQ/MySequence.uas
 ## 验证记录
 
 2026-10-28：21 项本地用例通过，包括引擎定位回归、帧范围换算、路径/配置校验、真实 HEVC 编码与 MP4 全景元数据写入。部署包窗口已启动并检查；根 CMake 配置通过。使用玉真观项目、目标序列及 `examples/YZG.render.json` 成功连接 UE 5.4.4，实际创建瞬态 MRQ 配置并检查通过：序列 0～1139，60fps 输出 2280 张，38 秒。未启动整段 8K 渲染，未验证正式画面内容和高分辨率显存占用。
+
+2026-10-30：使用 UE 5.4.4 的隐仙岩项目，已通过发布 exe 完成 `/Game/SEQ/0930_juhua/0930_YXY_JUHUA/3-3_4-3` 整段 7680×3840、60fps PNG 输出，共 2584 张（源帧 0～2583，43.066667 秒），约 111.34GiB，MRQ 用时 07:58:49.385。`status.json`、`frames_manifest.json`、`result.json` 均为 complete，全部编号、尺寸校验通过，首中尾画面抽检通过，MRQ 消息为空。本次实际采用 8×3 分片、60°/75° FOV、独立历史、空间/时间采样 2/1、fully_load 纹理设置。修复状态文件短暂占用导致的客户端退出，增加有界读取重试与已有 PNG 任务接管，原 UE 渲染保持连续。两套 Qt 测试、6 项 Python 用例、真实 Windows 文件锁回归及 4 项接管功能实测通过。此记录验证图片输出；本次未进行整段 8K MP4 编码。

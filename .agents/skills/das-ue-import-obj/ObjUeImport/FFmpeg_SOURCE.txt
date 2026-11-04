@@ -1,4 +1,13 @@
-FFmpeg binary supplied by the existing repository tools/video_frames_ffmpeg installation.
+FFmpeg 9.0.2-essentials_build-www.gyan.dev (Windows x64, static build)
 Distributor: https://www.gyan.dev/ffmpeg/builds/
-Corresponding source/build information: https://github.com/GyanD/codexffmpeg
-FFmpeg source: https://ffmpeg.org/download.html
+Package: https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip
+FFmpeg source revision: https://github.com/FFmpeg/FFmpeg/commit/946fcce07b
+FFmpeg release source: https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
+Build configuration and dependency sources: https://github.com/GyanD/codexffmpeg
+License: GNU General Public License version 3; see LICENSE (LICENSE_FFmpeg.txt in releases).
+ffmpeg.exe SHA-256: 3256173f3f8bffd7df12227c68adf68025edb1832273a9530688a7bb1ed8edec
+
+The executable is stored using Git LFS at tools/ffmpeg/ffmpeg.exe.
+After cloning, run git lfs install and git lfs pull before building or publishing.
+Releases copy this executable, its license and this notice beside das_panorama_video.exe.
+The application resolves ffmpeg.exe relative to its own directory, independent of the working directory.
