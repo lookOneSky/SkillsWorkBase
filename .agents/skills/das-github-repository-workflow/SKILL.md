@@ -12,6 +12,8 @@ user-invocable: false
 
 - 仅提交本次相关改动，提交前核对，保留无关改动及其暂存状态。
 - 提交说明与内容一致；AI 提交消息末尾空一行，独立落款 `AI`。
+- GitHub 提交流程禁止生成 merge commit。同步远端时使用 `git pull --ff-only` 或 `git pull --rebase`。
+- 推送前检查本次待推送的新提交，发现 merge commit 时停止推送。
 
 ## 仓库首次提交
 
