@@ -53,6 +53,8 @@ def build_target_roots() -> tuple[tuple[str, Path], ...]:
     candidates = (
         ("Claude", home / ".claude" / "skills"),
         ("Codex", home / ".agents" / "skills"),
+        ("Antigravity", home / ".gemini" / "config" / "skills"),
+        ("Antigravity Legacy", home / ".gemini" / "antigravity" / "skills"),
         ("WorkBuddy", workbuddy_config_dir() / "skills"),
         ("WorkBuddy Compat", home / ".codebuddy" / "skills"),
         ("WorkBuddy Legacy", home / ".workbuddy" / "skills"),
@@ -244,7 +246,7 @@ def read_key() -> str:
 
 
 def choose_action() -> str | None:
-    print("Claude/Codex/WorkBuddy/SpatialMind 用户级 Skill 部署工具")
+    print("Claude/Codex/Antigravity/WorkBuddy/SpatialMind 用户级 Skill 部署工具")
     print(f"共享 Skill 源：{SHARED_SOURCE_ROOT}")
     print(f"Claude 专用 Skill 源：{CLAUDE_SOURCE_ROOT}")
     for product, target_root in TARGET_ROOTS:

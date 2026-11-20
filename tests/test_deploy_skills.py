@@ -18,6 +18,18 @@ SPEC.loader.exec_module(deploy_skills)
 
 
 class TargetConfigurationTests(unittest.TestCase):
+    def test_antigravity_current_and_legacy_directories_are_configured(self) -> None:
+        targets = dict(deploy_skills.build_target_roots())
+
+        self.assertEqual(
+            targets["Antigravity"],
+            Path.home() / ".gemini" / "config" / "skills",
+        )
+        self.assertEqual(
+            targets["Antigravity Legacy"],
+            Path.home() / ".gemini" / "antigravity" / "skills",
+        )
+
     def test_workbuddy_user_skill_directory_is_configured(self) -> None:
         targets = dict(deploy_skills.TARGET_ROOTS)
 
@@ -78,6 +90,14 @@ class DeploySkillsTests(unittest.TestCase):
         self.targets = (
             ("Claude", self.root / "targets" / ".claude" / "skills"),
             ("Codex", self.root / "targets" / ".agents" / "skills"),
+            (
+                "Antigravity",
+                self.root / "targets" / ".gemini" / "config" / "skills",
+            ),
+            (
+                "Antigravity Legacy",
+                self.root / "targets" / ".gemini" / "antigravity" / "skills",
+            ),
             ("WorkBuddy", self.root / "targets" / ".workbuddy-ai" / "skills"),
             (
                 "WorkBuddy Compat",
@@ -160,6 +180,30 @@ class DeploySkillsTests(unittest.TestCase):
                 "payload",
             )
             self.assertEqual((target / "agents").exists(), product == "Codex")
+
+    def test_shared_skill_update_replaces_payload_and_removes_stale_files(self) -> None:
+        name = "das-update-test"
+        source = self.create_skill(self.shared, name)
+        (source / "obsolete.txt").write_text("obsolete", encoding="utf-8")
+        self.assertEqual(self.run_main("--action", "install", name), 0)
+        for _, target_root in self.targets:
+            self.assertTrue((target_root / name / "obsolete.txt").is_file())
+
+        (source / "obsolete.txt").unlink()
+        (source / "payload.txt").write_text("updated", encoding="utf-8")
+
+        self.assertEqual(self.run_main("--action", "install", name), 0)
+
+        for product, target_root in self.targets:
+            with self.subTest(product=product):
+                target = target_root / name
+                self.assertEqual(
+                    (target / "payload.txt").read_text(encoding="utf-8"),
+                    "updated",
+                )
+                self.assertFalse((target / "obsolete.txt").exists())
+                self.assertEqual((target / "agents").exists(), product == "Codex")
+                self.assertEqual(list(target_root.iterdir()), [target])
 
     def test_claude_only_skill_is_removed_from_other_products(self) -> None:
         name = "das-claude-test"

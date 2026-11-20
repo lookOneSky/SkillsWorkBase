@@ -53,7 +53,7 @@ def deploy(repository_dir: Path) -> None:
     if not mcp_deploy_script.is_file():
         raise FileNotFoundError(f"未找到 MCP 部署入口：{mcp_deploy_script}")
 
-    print("正在非交互部署 Claude/Codex/WorkBuddy/SpatialMind Skills")
+    print("正在非交互部署 Claude/Codex/Antigravity/WorkBuddy/SpatialMind Skills")
     run(
         [sys.executable, str(deploy_script), "--action", "install"],
         cwd=repository_dir,
