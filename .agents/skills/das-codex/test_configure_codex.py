@@ -29,13 +29,16 @@ class ConfigureCodexTests(unittest.TestCase):
         (self.assets / "src-registry.js").write_bytes(b"composer.togglePlanMode")
         self.module = self.assets / "use-collaboration-mode-fixture.js"
         self.module.write_bytes(ORIGINAL)
-        (self.extension / "package.json").write_bytes(cfg.json_bytes({"publisher": "openai", "name": "chatgpt", "version": "1.2.3", "contributes": {"commands": [{"command": rule["command"]} for rule in cfg.CODE_RULES]}}))
+        (self.extension / "package.json").write_bytes(cfg.json_bytes({"publisher": "openai", "name": "chatgpt", "version": "1.2.3"}))
         (self.extensions / "extensions.json").write_bytes(cfg.json_bytes([{"identifier": {"id": "openai.chatgpt"}, "relativeLocation": self.extension.name}]))
         self.home = self.root / "home"
         self.keymap = self.home / "keybindings.json"
-        self.user_dir = self.root / "vscode-user"
-        self.vscode_keymap = self.user_dir / "keybindings.json"
-        self.args = ["--extensions-dir", str(self.extensions), "--codex-home", str(self.home), "--vscode-user-dir", str(self.user_dir)]
+        appdata = self.root / "appdata"
+        self.vscode_keymap = appdata / "Code" / "User" / "keybindings.json"
+        appdata_patch = patch.dict(cfg.os.environ, {"APPDATA": str(appdata)})
+        appdata_patch.start()
+        self.addCleanup(appdata_patch.stop)
+        self.args = ["--extensions-dir", str(self.extensions), "--codex-home", str(self.home)]
 
     def run_cli(self, *extra):
         output = io.StringIO()
@@ -56,8 +59,7 @@ class ConfigureCodexTests(unittest.TestCase):
         entries = cfg.load_json(self.keymap)
         self.assertEqual(entries[0], {"command": "newTask", "key": "Ctrl+Alt+N", "version": 1})
         self.assertEqual(entries[-1], {"command": cfg.COMMAND, "key": cfg.KEY})
-        code_rules, _ = cfg.parse_jsonc(self.vscode_keymap.read_text(encoding="utf-8"))
-        self.assertEqual(code_rules, cfg.CODE_RULES)
+        self.assertFalse(self.vscode_keymap.exists())
         self.assertTrue(all(result["checks"].values()))
         self.assertNotEqual(self.module.read_bytes(), ORIGINAL)
         self.assertTrue(result["reload_required"])
@@ -70,7 +72,7 @@ class ConfigureCodexTests(unittest.TestCase):
     def test_repeat_execution_does_not_write_or_create_backup(self):
         code, output = self.run_cli()
         self.assertEqual(code, 0, output)
-        before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in (self.keymap, self.module, self.vscode_keymap)}
+        before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in (self.keymap, self.module)}
         backups = list((self.home / "backups").iterdir())
         code, output = self.run_cli()
         self.assertEqual(code, 0, output)
@@ -111,7 +113,7 @@ class ConfigureCodexTests(unittest.TestCase):
         self.assertEqual(code, 1, output)
         self.assertEqual(self.module.read_bytes(), b"new code structure")
         self.assertFalse(self.home.exists())
-        self.assertFalse(self.user_dir.exists())
+        self.assertFalse(self.vscode_keymap.exists())
 
     def test_failed_second_write_rolls_back_first(self):
         original_write = cfg.atomic_write
@@ -169,97 +171,23 @@ class ConfigureCodexTests(unittest.TestCase):
         self.assertEqual(code, 0, output)
         self.assertIn(b'selected=$thread?.mode??$draft??"plan"', self.module.read_bytes())
 
-    def set_vscode_keymap(self, text):
-        self.user_dir.mkdir(exist_ok=True)
-        self.vscode_keymap.write_bytes(text.encode("utf-8"))
-
-    def test_jsonc_comments_trailing_commas_and_bom_are_preserved(self):
-        text = '\ufeff// user note\r\n[\r\n /* kept */ {"key":"ctrl+x","command":"custom","args":{"text":"// literal, } /* text */ \\\"",},}, // trailing\r\n]\r\n'
-        self.set_vscode_keymap(text)
-        before = self.vscode_keymap.read_bytes()
-        original_entries, _ = cfg.parse_jsonc(text.lstrip("\ufeff"))
+    def test_plan_initialization_keeps_claude_shortcut(self):
+        self.vscode_keymap.parent.mkdir(parents=True)
+        claude = b'[{"key":"alt+k","command":"claude-vscode.insertAtMention","when":"editorTextFocus"}]'
+        self.vscode_keymap.write_bytes(claude)
         code, output = self.run_cli()
         self.assertEqual(code, 0, output)
-        current = self.vscode_keymap.read_bytes()
-        self.assertTrue(current.startswith(b"\xef\xbb\xbf"))
-        self.assertIn(b"// user note\r\n", current)
-        self.assertIn(b"/* kept */", current)
-        self.assertIn(b"// trailing", current)
-        entries, _ = cfg.parse_jsonc(current.decode("utf-8-sig"))
-        self.assertEqual(entries, original_entries + cfg.CODE_RULES)
-        code, output = self.run_cli("--restore", json.loads(output)["backup"])
+        self.assertEqual(self.vscode_keymap.read_bytes(), claude)
+
+    def test_legacy_vscode_keybindings_backup_can_still_be_restored(self):
+        self.vscode_keymap.parent.mkdir(parents=True)
+        before = b"[]"
+        after = b'[{"key":"alt+k","command":"chatgpt.addToThread"}]'
+        backup = cfg.create_backup(self.home, [(self.vscode_keymap, before, after)])
+        self.vscode_keymap.write_bytes(after)
+        code, output = self.run_cli("--restore", str(backup))
         self.assertEqual(code, 0, output)
         self.assertEqual(self.vscode_keymap.read_bytes(), before)
-
-    def test_vscode_jsonc_append_handles_all_array_endings(self):
-        samples = ["", "// only comment", "[]", "[ ]", "/* note */ [/* inside */]",
-                   '[{"key":"ctrl+x","command":"custom"}]',
-                   '[{"key":"ctrl+x","command":"custom"},]',
-                   '[{"key":"ctrl+x","command":"custom"} // final comment\n]']
-        for text in samples:
-            with self.subTest(text=text):
-                self.set_vscode_keymap(text)
-                original_entries, _ = cfg.parse_jsonc(text)
-                _, after = cfg.prepare_vscode_keymap(self.vscode_keymap)
-                entries, _ = cfg.parse_jsonc(after.decode("utf-8"))
-                self.assertEqual(entries, original_entries + cfg.CODE_RULES)
-
-    def test_later_editor_alt_k_conflict_is_overridden_without_deleting_rules(self):
-        original = cfg.CODE_RULES + [{"key": "Alt+K", "command": "another.command", "when": "editorTextFocus"}]
-        self.set_vscode_keymap(json.dumps(original))
-        code, output = self.run_cli()
-        self.assertEqual(code, 0, output)
-        entries, _ = cfg.parse_jsonc(self.vscode_keymap.read_text(encoding="utf-8"))
-        self.assertEqual(entries, original + cfg.CODE_RULES)
-        self.assertEqual(self.run_cli("--check")[0], 0)
-        self.assertNotIn("backup", json.loads(self.run_cli()[1]))
-
-    def test_invalid_vscode_jsonc_leaves_all_configuration_untouched(self):
-        self.set_vscode_keymap('[{"key":"alt+k", /* unterminated')
-        before = self.vscode_keymap.read_bytes()
-        code, output = self.run_cli()
-        self.assertEqual(code, 1, output)
-        self.assertFalse(self.home.exists())
-        self.assertEqual(self.module.read_bytes(), ORIGINAL)
-        self.assertEqual(self.vscode_keymap.read_bytes(), before)
-        self.assertEqual(json.loads(output)["status"], "failed")
-
-    def test_failed_vscode_write_rolls_back_plan_and_keymap(self):
-        original_write = cfg.atomic_write
-        def failing_write(path, data):
-            if path == self.vscode_keymap:
-                raise PermissionError("simulated locked VS Code keybindings")
-            return original_write(path, data)
-        with patch.object(cfg, "atomic_write", side_effect=failing_write):
-            code, output = self.run_cli()
-        self.assertEqual(code, 1, output)
-        self.assertFalse(self.keymap.exists())
-        self.assertFalse(self.vscode_keymap.exists())
-        self.assertEqual(self.module.read_bytes(), ORIGINAL)
-
-    def test_missing_code_command_is_reported_before_any_write(self):
-        package = cfg.load_json(self.extension / "package.json")
-        package["contributes"]["commands"] = []
-        (self.extension / "package.json").write_bytes(cfg.json_bytes(package))
-        code, output = self.run_cli()
-        self.assertEqual(code, 1, output)
-        self.assertIn("chatgpt.addToThread", json.loads(output)["error"])
-        self.assertFalse(self.home.exists())
-        self.assertFalse(self.user_dir.exists())
-
-    def test_shared_codex_and_vscode_path_is_rejected(self):
-        code, output = self.run_cli("--vscode-user-dir", str(self.home))
-        self.assertEqual(code, 1, output)
-        self.assertFalse(self.home.exists())
-
-    def test_check_detects_deleted_alt_k_rule(self):
-        self.assertEqual(self.run_cli()[0], 0)
-        self.set_vscode_keymap(json.dumps(cfg.CODE_RULES[:1]))
-        code, output = self.run_cli("--check")
-        self.assertEqual(code, 2, output)
-        result = json.loads(output)
-        self.assertFalse(result["checks"]["alt_k_current_file"])
-        self.assertEqual(result["pending_files"], [str(self.vscode_keymap)])
 
     def test_post_write_verification_failure_reports_recoverable_backup(self):
         original_verify = cfg.verify_configuration

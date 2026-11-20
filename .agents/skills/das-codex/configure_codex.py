@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Configure Alt+K, Shift+Tab and initial Plan mode for the VS Code Codex extension."""
+"""Configure Shift+Tab and initial Plan mode for the VS Code Codex extension."""
 
 from __future__ import annotations
 
@@ -17,11 +17,6 @@ from pathlib import Path
 
 COMMAND = "composer.togglePlanMode"
 KEY = "Shift+Tab"
-CODE_KEY = "alt+k"
-CODE_RULES = [
-    {"key": CODE_KEY, "command": "chatgpt.addToThread", "when": "editorTextFocus && editorHasSelection && resourceScheme == file"},
-    {"key": CODE_KEY, "command": "chatgpt.addFileToThread", "when": "editorTextFocus && !editorHasSelection && resourceScheme == file"},
-]
 MODE_RE = re.compile(
     rb"\b[A-Za-z_$][\w$]*=[A-Za-z_$][\w$]*\?\.mode\?\?"
     rb"[A-Za-z_$][\w$]*\?\?(?P<quote>[`\"'])(?P<mode>default|plan)(?P=quote)"
@@ -135,123 +130,12 @@ def prepare_keymap(path):
     return before, json_bytes(entries)
 
 
-def parse_jsonc(text):
-    """Blank comments and trailing commas without changing string values or offsets."""
-    clean = list(text)
-    in_string = False
-    escaped = False
-    index = 0
-    while index < len(text):
-        char = text[index]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-        elif char == '"':
-            in_string = True
-        elif text[index:index + 2] in ("//", "/*"):
-            if text[index + 1] == "/":
-                end = text.find("\n", index + 2)
-                end = len(text) if end == -1 else end
-            else:
-                end = text.find("*/", index + 2)
-                if end == -1:
-                    raise ConfigError("VS Code 快捷键文件包含未结束的块注释")
-                end += 2
-            for position in range(index, end):
-                if clean[position] not in "\r\n":
-                    clean[position] = " "
-            index = end
-            continue
-        index += 1
-    comments_blanked = "".join(clean)
-    in_string = escaped = False
-    for index, char in enumerate(comments_blanked):
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-        elif char == '"':
-            in_string = True
-        elif char == ",":
-            following = comments_blanked[index + 1:].lstrip()
-            if following and following[0] in "]}":
-                clean[index] = " "
-    try:
-        entries = json.loads("".join(clean)) if comments_blanked.strip() else []
-    except json.JSONDecodeError as exc:
-        raise ConfigError(f"无效的 VS Code 快捷键 JSONC：{exc}") from exc
-    if not isinstance(entries, list) or any(
-        not isinstance(entry, dict)
-        or not isinstance(entry.get("key"), str)
-        or not isinstance(entry.get("command"), str)
-        for entry in entries
-    ):
-        raise ConfigError("VS Code 快捷键配置必须是 key/command 对象数组")
-    return entries, comments_blanked
-
-
-def alt_k_configured(entries):
-    active = [entry for entry in entries if
-              sorted(entry["key"].lower().replace(" ", "").split("+")) == ["alt", "k"]
-              and not entry["command"].startswith("-")]
-    return len(active) >= 2 and all(
-        actual["command"] == expected["command"]
-        and actual.get("when") == expected["when"]
-        and actual.get("args") is None
-        for actual, expected in zip(active[-2:], CODE_RULES)
-    )
-
-
-def prepare_vscode_keymap(path):
-    before = read_optional(path)
-    try:
-        text = before.decode("utf-8-sig") if before is not None else ""
-    except UnicodeError as exc:
-        raise ConfigError(f"VS Code 快捷键文件不是有效 UTF-8：{path}") from exc
-    entries, clean = parse_jsonc(text)
-    if alt_k_configured(entries):
-        return before, before
-    newline = "\r\n" if "\r\n" in text else "\n"
-    if not clean.strip():
-        updated = text + (newline if text and not text.endswith("\n") else "")
-        updated += json.dumps(CODE_RULES, ensure_ascii=False, indent=4) + "\n"
-        updated = updated.replace("\r\n", "\n").replace("\n", newline)
-    else:
-        closing = clean.rfind("]")
-        last = len(clean[:closing].rstrip()) - 1
-        if clean[last] not in "[,":
-            text = text[:last + 1] + "," + text[last + 1:]
-            closing += 1
-        prefix = text[:closing]
-        prefix += "" if prefix.endswith("\n") else newline
-        body = json.dumps(CODE_RULES, ensure_ascii=False, indent=4)[2:-2].replace("\n", newline)
-        updated = prefix + body + newline + text[closing:]
-    encoded = updated.encode("utf-8")
-    if before is not None and before.startswith(b"\xef\xbb\xbf"):
-        encoded = b"\xef\xbb\xbf" + encoded
-    parsed, _ = parse_jsonc(updated)
-    if parsed != entries + CODE_RULES or not alt_k_configured(parsed):
-        raise ConfigError("Alt+K 生成结果校验失败，未修改任何文件")
-    return before, encoded
-
-
-def verify_configuration(extension, codex_keymap, vscode_keymap):
+def verify_configuration(extension, codex_keymap):
     codex_before, codex_after = prepare_keymap(codex_keymap)
     _, mode_before, mode_after = prepare_mode(extension)
-    vscode_before, vscode_after = prepare_vscode_keymap(vscode_keymap)
-    code_ready = vscode_before == vscode_after
     return {
         "plan_shortcut": codex_before == codex_after,
         "new_window_plan": mode_before == mode_after,
-        "alt_k_selected_code": code_ready,
-        "alt_k_current_file": code_ready,
     }
 
 
@@ -346,28 +230,17 @@ def initialize(args):
     extension = find_extension(args.extensions_dir, args.extension_dir)
     home = args.codex_home.expanduser().resolve()
     keymap_path = home / "keybindings.json"
-    vscode_keymap = args.vscode_user_dir.expanduser().resolve() / "keybindings.json"
-    if keymap_path == vscode_keymap:
-        raise ConfigError("Codex 和 VS Code 的快捷键文件不能是同一个文件")
-    package = load_json(extension / "package.json")
-    commands = {item.get("command") for item in package.get("contributes", {}).get("commands", [])}
-    missing = {rule["command"] for rule in CODE_RULES} - commands
-    if missing:
-        raise ConfigError(f"插件缺少发送代码命令：{', '.join(sorted(missing))}，未修改任何文件")
     mode_path, mode_before, mode_after = prepare_mode(extension)
     keymap_before, keymap_after = prepare_keymap(keymap_path)
-    vscode_before, vscode_after = prepare_vscode_keymap(vscode_keymap)
     changes = [(path, before, after) for path, before, after in (
         (keymap_path, keymap_before, keymap_after), (mode_path, mode_before, mode_after),
-        (vscode_keymap, vscode_before, vscode_after),
     ) if before != after]
     result = {
         "status": "needs-initialization" if changes else "configured",
         "extension": str(extension), "version": package_version(extension),
         "shortcut": KEY, "command": COMMAND, "initial_mode": "plan",
-        "code_shortcut": "Alt+K", "vscode_keybindings": str(vscode_keymap),
         "keymap": str(keymap_path), "pending_files": [str(item[0]) for item in changes],
-        "checks": verify_configuration(extension, keymap_path, vscode_keymap),
+        "checks": verify_configuration(extension, keymap_path),
         "reload_required": False,
     }
     if args.check:
@@ -376,7 +249,7 @@ def initialize(args):
         backup = create_backup(home, changes)
         try:
             transact(changes)
-            checks = verify_configuration(extension, keymap_path, vscode_keymap)
+            checks = verify_configuration(extension, keymap_path)
             if not all(checks.values()):
                 raise ConfigError(f"写入后仍有未完成项：{checks}")
         except (OSError, ValueError, ConfigError) as exc:
@@ -390,9 +263,6 @@ def main(argv=None):
     parser.add_argument("--codex-home", type=Path, default=Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex"))
     parser.add_argument("--extensions-dir", type=Path, default=Path.home() / ".vscode" / "extensions")
     parser.add_argument("--extension-dir", type=Path, help="指定某个 Codex 插件安装目录")
-    parser.add_argument("--vscode-user-dir", type=Path,
-                        default=Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming") / "Code" / "User",
-                        help="VS Code 用户配置目录，含 keybindings.json；自定义 Profile 请指定其目录")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--check", action="store_true", help="只检查；需要初始化时退出码为 2")
     mode.add_argument("--restore", type=Path, metavar="BACKUP", help="恢复指定备份")
