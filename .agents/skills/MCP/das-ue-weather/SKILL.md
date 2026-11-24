@@ -1,12 +1,12 @@
 ---
 name: das-ue-weather
 description: 用户提到设置天气、切换天气、调天气、下雨、下雪、起雾、晴天、阴天、沙尘，或提到设置时间、调时间、改成几点、日出、日落、黄昏、夜晚、白天，或要求设置场景、关卡、编辑器、Unreal 项目的时间或天气时使用。
-allowed-tools: [ue-weather-mcp:set_unreal_weather]
+allowed-tools: [UE连接器:set_unreal_weather]
 ---
 
 # Unreal 时间与天气
 
-工具是 Agent 提供的 `ue-weather-mcp:set_unreal_weather`。本 Skill 只调用 Agent 已发布的工具，不携带、部署或启动 MCP 服务包。
+工具是 Agent 提供的 `UE连接器:set_unreal_weather`。本 Skill 只调用 Agent 已发布的工具，不携带、部署或启动 MCP 服务包。
 
 1. 目标 `.uproject` 优先使用用户已提供的路径；未提供时，从当前项目工作目录（不是 Skill 安装目录）递归查找。只找到一个时直接使用，不要询问；未找到或找到多个时再询问用户，不要猜测路径。`time`、`time_of_day`、`sunrise` 三种时间设置互斥，可任选一种并与 `preset` 同时设置；四项中至少给一项，只下发用户明确要求的项。
 2. 时间优先用 `time` 传 `HH:MM[:SS]`；只有用户明确给出 UDS 线性刻度时才用 `time_of_day`（范围 `0-2400`，`09:30` 对应 `950`）。用户要求当前关卡位置的今日日出时传 `sunrise: true`。
