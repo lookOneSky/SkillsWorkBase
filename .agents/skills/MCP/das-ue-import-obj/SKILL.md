@@ -1,12 +1,12 @@
 ---
 name: das-ue-import-obj
 description: 用户提到 OBJ 导入、数据导入、倾斜模型导入、导入 OBJ、导入数据，或要求把 OBJ 或倾斜模型导入 Unreal Engine 项目，或提供 OBJ 目录时使用。
-allowed-tools: [UE连接器:convert_obj_metadata_coordinates, UE连接器:find_unreal_asset_path, UE连接器:import_obj_to_unreal]
+allowed-tools: [ue-connector-mcp:convert_obj_metadata_coordinates, ue-connector-mcp:find_unreal_asset_path, ue-connector-mcp:import_obj_to_unreal]
 ---
 
 # Unreal OBJ 导入
 
-工具是 Agent 提供的 `UE连接器:import_obj_to_unreal`。本 Skill 只调用 Agent 已发布的工具，不携带、部署或启动 MCP 服务包。
+工具是 Agent 提供的 `ue-connector-mcp:import_obj_to_unreal`。本 Skill 只调用 Agent 已发布的工具，不携带、部署或启动 MCP 服务包。
 
 1. 获取 OBJ 目录（也可以是单个 `.obj`），缺少时询问。目标 `.uproject` 优先使用用户已提供的路径；未提供时，从当前项目工作目录（不是 Skill 安装目录）递归查找。只找到一个时直接使用，不要询问；未找到或找到多个时再询问用户，不要猜测路径。UE 参考原点完全可选：用户未主动提供时不要询问，后续省略 `ue_origin`；主动提供完整经度、纬度和高程时才使用，仅提供部分时再询问缺失项。
 2. 调用前确认目标项目没有被 Unreal 编辑器打开，否则导入必定失败。
